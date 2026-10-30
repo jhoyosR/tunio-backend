@@ -1,98 +1,128 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Nest Base
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Base de aplicacion backend reutilizable, construida con [NestJS](https://docs.nestjs.com/). No contiene logica de negocio de ningun dominio particular: es un punto de partida ("fork base") con lo que la mayoria de proyectos backend necesita desde el dia uno.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Que incluye
 
-## Description
+- Gestion de usuarios (CRUD, paginacion, activar/desactivar, eliminar).
+- Roles y permisos (many-to-many), con permisos que solo se crean via seeders y roles gestionables desde la API.
+- Autenticacion JWT (login con email/password) y autorizacion basada en permisos (`@RequirePermissions(...)`).
+- Restablecimiento de contrasena por correo, con token de un solo uso y expiracion configurable.
+- Documentacion Swagger en `/api/docs`, con soporte de Bearer JWT.
+- Validacion de DTOs (`class-validator`) y de variables de entorno al arrancar (Joi).
+- Manejo global de errores y formato de respuesta HTTP consistente (`{ success, data }` / `{ success, error }`).
+- Paginacion reutilizable (`page`/`limit`) para cualquier listado.
+- CORS configurable por variable de entorno.
+- Modulo de correo desacoplado (Nodemailer sobre SMTP).
+- Docker Compose para levantar PostgreSQL en desarrollo, y `Dockerfile` para la app.
+- Seeders de permisos base, rol `super-admin` y el primer usuario super-admin.
+- Pruebas unitarias y e2e.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Stack
 
-## Project setup
+NestJS 11 · TypeORM 0.3 (Postgres) · `@nestjs/config` + Joi · `@nestjs/jwt` + Passport · `class-validator` · `@nestjs/swagger` · `bcrypt` · Nodemailer.
 
-```bash
-$ npm install
-```
+> Nota de versiones: algunos paquetes `@nestjs/*` publicaron majors recientes que pasaron a distribuirse como ESM puro (incompatibles con el `ts-jest`/CommonJS de este proyecto). Este repo fija deliberadamente `@nestjs/config`, `@nestjs/jwt`, `@nestjs/passport`, `@nestjs/typeorm` y `@nestjs/swagger` a la ultima version compatible con CommonJS y con Nest 11. Si en el futuro actualizas alguno de estos paquetes, verifica su campo `"type"` en `package.json` antes de subir de major.
 
-## Compile and run the project
+## Requisitos previos
+
+- Node.js 22+
+- Docker y Docker Compose (para PostgreSQL)
+
+## Puesta en marcha
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npm install
+cp .env.example .env   # ajusta los valores segun tu entorno
+docker compose up -d   # levanta PostgreSQL
+npm run migration:run  # aplica el esquema
+npm run seed            # crea permisos base, rol super-admin y el usuario super-admin
+npm run start:dev
 ```
 
-## Run tests
+La API queda en `http://localhost:3000` y la documentacion Swagger en `http://localhost:3000/api/docs`.
+
+## Variables de entorno
+
+Ver `.env.example` para la lista completa con valores de ejemplo. Todas se validan al arrancar (la app falla con un mensaje claro si falta alguna requerida):
+
+| Variable | Descripcion |
+|---|---|
+| `PORT` | Puerto HTTP de la app |
+| `CORS_ORIGINS` | Origenes permitidos, separados por coma |
+| `DATABASE_*` | Conexion a PostgreSQL |
+| `JWT_SECRET`, `JWT_EXPIRATION` | Firma y expiracion del access token |
+| `BCRYPT_SALT_ROUNDS` | Costo del hash de contrasenas |
+| `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD` | Credenciales del super-admin sembrado por `npm run seed` |
+| `PASSWORD_RESET_EXPIRATION_MINUTES` | Vigencia del token de reset password |
+| `SMTP_*`, `MAIL_FROM` | Proveedor SMTP para correo transaccional |
+
+## Migraciones
+
+El esquema se gestiona con migraciones de TypeORM (`synchronize` esta deshabilitado):
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npm run migration:generate -- src/database/migrations/NombreDescriptivo   # genera una migracion comparando entidades vs. DB
+npm run migration:run                                                     # aplica migraciones pendientes
+npm run migration:revert                                                  # revierte la ultima migracion
 ```
 
-## Deployment
+## Seeders
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+`npm run seed` corre, en orden:
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+1. **Permisos base** (`src/database/seeders/permissions.seeder.ts`): catalogo fijo de permisos del sistema. Los permisos **no** se pueden crear desde la API, solo desde este seeder.
+2. **Rol `super-admin`**: se crea/actualiza con todos los permisos existentes.
+3. **Usuario super-admin**: usa `SUPER_ADMIN_EMAIL`/`SUPER_ADMIN_PASSWORD` del entorno.
+
+El seeder es idempotente: se puede correr varias veces sin duplicar datos.
+
+## Autorizacion basada en permisos
+
+Cualquier endpoint puede exigir uno o mas permisos:
+
+```ts
+@Post()
+@RequirePermissions('users.create')
+create(@Body() dto: CreateUserDto) { ... }
+```
+
+`JwtAuthGuard` y `PermissionsGuard` estan registrados globalmente (`APP_GUARD`): por defecto toda ruta exige un JWT valido. Para exponer un endpoint publico, usa `@Public()`.
+
+## Pruebas
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+npm run test        # unitarias (mocks, sin DB)
+npm run test:e2e    # end-to-end contra una base de datos de pruebas desechable
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Los tests e2e usan `nest_base_test` (ver `.env.test`): `test/global-setup.ts` la recrea desde cero y corre las migraciones antes de cada corrida, para que los tests sean deterministas.
 
-## Resources
+## Docker
 
-Check out a few resources that may come in handy when working with NestJS:
+```bash
+docker compose up -d   # solo PostgreSQL, pensado para desarrollo local
+docker build -t nest-base .   # imagen de la app para produccion/CI
+```
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+## Estructura de carpetas
 
-## Support
+```
+src/
+  config/          # carga y validacion (Joi) de variables de entorno
+  database/
+    data-source.ts   # DataSource de TypeORM para el CLI de migraciones
+    migrations/
+    seeders/
+  common/          # decorators, DTOs, filtros e interceptores transversales
+  auth/            # login, JWT, guards, reset password
+  users/ roles/ permissions/   # un modulo por dominio (controller/service/entity/dto)
+  mail/            # servicio generico de correo (Nodemailer)
+```
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+## Como extender esta base para un proyecto nuevo
 
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+- Agrega tus modulos de negocio como carpetas nuevas bajo `src/`, siguiendo el mismo patron (`*.module.ts`, `*.controller.ts`, `*.service.ts`, `entities/`, `dto/`).
+- Si un modulo nuevo necesita endpoints paginados, reutiliza `PaginationQueryDto` y `paginate()` de `src/common`.
+- Si un endpoint necesita protegerse por permisos, agrega el permiso a `BASE_PERMISSIONS` en `src/database/seeders/permissions.seeder.ts` y decora el endpoint con `@RequirePermissions('tu.permiso')`. Vuelve a correr `npm run seed` (el rol `super-admin` toma automaticamente los permisos nuevos).
+- No modifiques `users`, `roles`, `permissions`, `auth`, `mail` ni `common`: son la parte transversal de la base. La logica especifica del nuevo proyecto va en modulos propios que consumen estos servicios (por ejemplo, inyectando `MailService` o protegiendo rutas con `@RequirePermissions`).
