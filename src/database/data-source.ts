@@ -1,9 +1,5 @@
 import { config } from 'dotenv';
 import { DataSource } from 'typeorm';
-import { User } from '../users/entities/user.entity';
-import { Role } from '../roles/entities/role.entity';
-import { Permission } from '../permissions/entities/permission.entity';
-import { PasswordResetToken } from '../auth/entities/password-reset-token.entity';
 
 config({ quiet: true });
 
@@ -16,7 +12,7 @@ export const AppDataSource = new DataSource({
   username: process.env.DATABASE_USERNAME,
   password: process.env.DATABASE_PASSWORD,
   database: process.env.DATABASE_NAME,
-  entities: [User, Role, Permission, PasswordResetToken],
+  entities: [],
   migrations: [__dirname + '/migrations/*.{ts,js}'],
   synchronize: false,
 });

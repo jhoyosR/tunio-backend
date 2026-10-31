@@ -16,20 +16,17 @@ export const envValidationSchema = Joi.object({
   DATABASE_PASSWORD: Joi.string().required(),
   DATABASE_NAME: Joi.string().required(),
 
-  JWT_SECRET: Joi.string().required(),
-  JWT_EXPIRATION: Joi.string().default('1d'),
-
-  BCRYPT_SALT_ROUNDS: Joi.number().default(10),
-
-  SUPER_ADMIN_EMAIL: Joi.string().email().required(),
-  SUPER_ADMIN_PASSWORD: Joi.string().min(8).required(),
-
-  PASSWORD_RESET_EXPIRATION_MINUTES: Joi.number().default(30),
-
-  SMTP_HOST: Joi.string().required(),
-  SMTP_PORT: Joi.number().required(),
-  SMTP_SECURE: Joi.boolean().default(false),
-  SMTP_USER: Joi.string().allow('').optional(),
-  SMTP_PASSWORD: Joi.string().allow('').optional(),
-  MAIL_FROM: Joi.string().required(),
+  // Constantes del servicio (docs/06 §5). No son ajustes por establecimiento:
+  // valen para todo el sistema (decision 21).
+  TUNIO_TIMEZONE: Joi.string().default('America/Bogota'),
+  TUNIO_MAX_REQUESTS_PER_HOUR: Joi.number().integer().min(1).default(5),
+  TUNIO_BLOCK_DURATION_HOURS: Joi.number().integer().min(1).default(4),
+  TUNIO_SEARCH_CACHE_TTL_HOURS: Joi.number().integer().min(1).default(24),
+  TUNIO_YOUTUBE_DAILY_QUOTA: Joi.number().integer().min(1).default(10000),
+  TUNIO_YOUTUBE_QUOTA_RESERVE_PCT: Joi.number()
+    .integer()
+    .min(0)
+    .max(100)
+    .default(20),
+  TUNIO_EVENT_RETENTION_DAYS: Joi.number().integer().min(1).default(180),
 });

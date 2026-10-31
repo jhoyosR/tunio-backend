@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_USER: ${DATABASE_USERNAME:-postgres}
       POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-postgres}
-      POSTGRES_DB: ${DATABASE_NAME:-nest_base}
+      POSTGRES_DB: ${DATABASE_NAME:-tunio}
     ports:
       - '${DATABASE_PORT:-5432}:5432'
     volumes:

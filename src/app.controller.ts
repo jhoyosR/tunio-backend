@@ -1,18 +1,16 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { AppService } from './app.service';
-import { Public } from './common/decorators/public.decorator';
+import { AppService, HealthStatus } from './app.service';
 
-// Health check generico, util para balanceadores de carga o monitoreo,
-// transversal a cualquier proyecto que se construya sobre esta base.
+// Responde 200 si el servidor y la base estan disponibles, y 503 si la base
+// no responde, para que monitoreo o balanceadores distingan ambos casos.
 @ApiTags('Health')
 @Controller()
 export class AppController {
   constructor(private readonly appService: AppService) {}
 
-  @Public()
   @Get('health')
-  getHealth() {
+  getHealth(): Promise<HealthStatus> {
     return this.appService.getHealth();
   }
 }

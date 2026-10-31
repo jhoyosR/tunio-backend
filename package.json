@@ -1,7 +1,7 @@
 {
-  "name": "base-initial-project",
+  "name": "tunio-backend",
   "version": "0.0.1",
-  "description": "",
+  "description": "Servidor principal de Tunio (NestJS)",
   "author": "",
   "private": true,
   "license": "UNLICENSED",
@@ -22,8 +22,7 @@
     "migration:generate": "npm run typeorm -- migration:generate",
     "migration:create": "typeorm-ts-node-commonjs migration:create",
     "migration:run": "npm run typeorm -- migration:run",
-    "migration:revert": "npm run typeorm -- migration:revert",
-    "seed": "ts-node -r tsconfig-paths/register src/database/seeders/seed.ts"
+    "migration:revert": "npm run typeorm -- migration:revert"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -39,7 +38,6 @@
     "class-validator": "^0.15.1",
     "dotenv": "^17.4.2",
     "joi": "^18.2.5",
-    "nodemailer": "^9.1.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pg": "^8.23.0",
@@ -57,7 +55,6 @@
     "@types/express": "^5.0.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.0.0",
-    "@types/nodemailer": "^8.0.1",
     "@types/passport-jwt": "^4.0.1",
     "@types/supertest": "^7.0.0",
     "eslint": "^9.18.0",

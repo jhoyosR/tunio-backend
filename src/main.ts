@@ -1,11 +1,14 @@
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
-import { ValidationPipe } from '@nestjs/common';
+import { ConsoleLogger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // Registro en JSON (una linea por evento) para poder filtrarlo y medirlo.
+  const app = await NestFactory.create(AppModule, {
+    logger: new ConsoleLogger({ json: true }),
+  });
   const configService = app.get(ConfigService);
 
   app.useGlobalPipes(
@@ -21,12 +24,11 @@ async function bootstrap() {
   });
 
   const swaggerConfig = new DocumentBuilder()
-    .setTitle('Nest Base API')
+    .setTitle('Tunio API')
     .setDescription(
-      'Base reutilizable: usuarios, roles, permisos y autenticacion JWT',
+      'Servidor principal de Tunio: solicitud musical colaborativa para bares',
     )
-    .setVersion('1.0')
-    .addBearerAuth()
+    .setVersion('0.1')
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api/docs', app, document);
