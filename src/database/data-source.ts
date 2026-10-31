@@ -1,5 +1,6 @@
 import { config } from 'dotenv';
 import { DataSource } from 'typeorm';
+import { ENTITIES } from './entities';
 
 config({ quiet: true });
 
@@ -12,7 +13,8 @@ export const AppDataSource = new DataSource({
   username: process.env.DATABASE_USERNAME,
   password: process.env.DATABASE_PASSWORD,
   database: process.env.DATABASE_NAME,
-  entities: [],
+  entities: ENTITIES,
+  uuidExtension: 'pgcrypto',
   migrations: [__dirname + '/migrations/*.{ts,js}'],
   synchronize: false,
 });

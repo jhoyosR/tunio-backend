@@ -9,6 +9,7 @@ import { envValidationSchema } from './config/env.validation';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { RequestLoggingMiddleware } from './common/middleware/request-logging.middleware';
+import { ENTITIES } from './database/entities';
 
 @Module({
   imports: [
@@ -27,7 +28,9 @@ import { RequestLoggingMiddleware } from './common/middleware/request-logging.mi
         username: configService.get<string>('database.username'),
         password: configService.get<string>('database.password'),
         database: configService.get<string>('database.name'),
-        entities: [],
+        entities: ENTITIES,
+        // Los UUID por defecto usan gen_random_uuid(), igual que el esquema de referencia.
+        uuidExtension: 'pgcrypto' as const,
         // Nunca en produccion: el esquema se gestiona con migraciones explicitas.
         synchronize: false,
       }),
