@@ -16,6 +16,11 @@ export default () => ({
     name: process.env.DATABASE_NAME,
   },
 
+  jwt: {
+    secret: process.env.JWT_SECRET,
+    expiresInHours: Number(process.env.JWT_EXPIRES_IN_HOURS),
+  },
+
   tunio: {
     timezone: process.env.TUNIO_TIMEZONE,
     maxRequestsPerHour: Number(process.env.TUNIO_MAX_REQUESTS_PER_HOUR),

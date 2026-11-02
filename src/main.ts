@@ -29,6 +29,7 @@ async function bootstrap() {
       'Servidor principal de Tunio: solicitud musical colaborativa para bares',
     )
     .setVersion('0.1')
+    .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api/docs', app, document);

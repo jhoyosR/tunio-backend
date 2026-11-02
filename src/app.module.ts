@@ -10,6 +10,7 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { RequestLoggingMiddleware } from './common/middleware/request-logging.middleware';
 import { ENTITIES } from './database/entities';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { ENTITIES } from './database/entities';
         synchronize: false,
       }),
     }),
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [
