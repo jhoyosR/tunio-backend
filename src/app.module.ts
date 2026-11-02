@@ -14,6 +14,7 @@ import { AuthModule } from './auth/auth.module';
 import { VenuesModule } from './venues/venues.module';
 import { SessionsModule } from './sessions/sessions.module';
 import { DevicesModule } from './devices/devices.module';
+import { CatalogModule } from './catalog/catalog.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { DevicesModule } from './devices/devices.module';
     VenuesModule,
     SessionsModule,
     DevicesModule,
+    CatalogModule,
   ],
   controllers: [AppController],
   providers: [

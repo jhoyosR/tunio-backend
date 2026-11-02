@@ -21,6 +21,10 @@ export default () => ({
     expiresInHours: Number(process.env.JWT_EXPIRES_IN_HOURS),
   },
 
+  youtube: {
+    apiKey: process.env.YOUTUBE_API_KEY,
+  },
+
   tunio: {
     timezone: process.env.TUNIO_TIMEZONE,
     maxRequestsPerHour: Number(process.env.TUNIO_MAX_REQUESTS_PER_HOUR),
