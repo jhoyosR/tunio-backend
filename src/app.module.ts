@@ -11,6 +11,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { RequestLoggingMiddleware } from './common/middleware/request-logging.middleware';
 import { ENTITIES } from './database/entities';
 import { AuthModule } from './auth/auth.module';
+import { VenuesModule } from './venues/venues.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { AuthModule } from './auth/auth.module';
       }),
     }),
     AuthModule,
+    VenuesModule,
   ],
   controllers: [AppController],
   providers: [
