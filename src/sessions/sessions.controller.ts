@@ -48,8 +48,9 @@ export class SessionsController {
   pauseSession(
     @Param('venueId') venueId: string,
     @Param('sessionId', ParseUUIDPipe) sessionId: string,
+    @CurrentStaff() staff: AuthenticatedStaff,
   ): Promise<SessionDetails> {
-    return this.sessionsService.pauseSession(venueId, sessionId);
+    return this.sessionsService.pauseSession(venueId, sessionId, staff.staffId);
   }
 
   @Post(':sessionId/resume')
@@ -57,8 +58,13 @@ export class SessionsController {
   resumeSession(
     @Param('venueId') venueId: string,
     @Param('sessionId', ParseUUIDPipe) sessionId: string,
+    @CurrentStaff() staff: AuthenticatedStaff,
   ): Promise<SessionDetails> {
-    return this.sessionsService.resumeSession(venueId, sessionId);
+    return this.sessionsService.resumeSession(
+      venueId,
+      sessionId,
+      staff.staffId,
+    );
   }
 
   @Post(':sessionId/close')
@@ -66,7 +72,8 @@ export class SessionsController {
   closeSession(
     @Param('venueId') venueId: string,
     @Param('sessionId', ParseUUIDPipe) sessionId: string,
+    @CurrentStaff() staff: AuthenticatedStaff,
   ): Promise<SessionDetails> {
-    return this.sessionsService.closeSession(venueId, sessionId);
+    return this.sessionsService.closeSession(venueId, sessionId, staff.staffId);
   }
 }

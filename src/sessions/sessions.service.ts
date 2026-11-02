@@ -4,7 +4,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, QueryFailedError, Repository } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  In,
+  QueryFailedError,
+  Repository,
+} from 'typeorm';
+import { ActivityEventsService } from '../activity/activity-events.service';
 import { DefaultPlaylist } from '../playlists/entities/default-playlist.entity';
 import { MusicSession, SessionStatus } from './entities/music-session.entity';
 
@@ -14,6 +21,12 @@ export const OPEN_SESSION_STATUSES: SessionStatus[] = ['ACTIVE', 'PAUSED'];
 
 const ONE_OPEN_SESSION_INDEX = 'uq_one_open_session_per_venue';
 const UNIQUE_VIOLATION = '23505';
+
+const SESSION_EVENT_BY_STATUS = {
+  ACTIVE: 'SESSION_ACTIVE',
+  PAUSED: 'SESSION_PAUSED',
+  CLOSED: 'SESSION_CLOSED',
+} as const satisfies Record<SessionStatus, string>;
 
 export interface SessionDetails {
   id: string;
@@ -31,6 +44,8 @@ export class SessionsService {
     private readonly sessionRepository: Repository<MusicSession>,
     @InjectRepository(DefaultPlaylist)
     private readonly playlistRepository: Repository<DefaultPlaylist>,
+    private readonly dataSource: DataSource,
+    private readonly activityEvents: ActivityEventsService,
   ) {}
 
   findOpenSession(venueId: string): Promise<MusicSession | null> {
@@ -55,14 +70,18 @@ export class SessionsService {
   ): Promise<SessionDetails> {
     const playlist = await this.playlistRepository.findOneBy({ venueId });
     try {
-      const session = await this.sessionRepository.save(
-        this.sessionRepository.create({
-          venueId,
-          eventName,
-          openedByStaffId: staffId,
-          defaultPlaylistId: playlist?.id ?? null,
-        }),
-      );
+      const session = await this.dataSource.transaction(async (manager) => {
+        const opened = await manager.save(
+          manager.create(MusicSession, {
+            venueId,
+            eventName,
+            openedByStaffId: staffId,
+            defaultPlaylistId: playlist?.id ?? null,
+          }),
+        );
+        await this.recordSessionEvent(manager, opened, staffId);
+        return opened;
+      });
       return this.toDetails(session);
     } catch (error) {
       if (this.isOneOpenSessionViolation(error)) {
@@ -73,55 +92,95 @@ export class SessionsService {
   }
 
   // En PAUSED la musica sigue; solo se dejan de aceptar solicitudes y votos.
-  pauseSession(venueId: string, sessionId: string): Promise<SessionDetails> {
-    return this.transition(venueId, sessionId, ['ACTIVE'], 'PAUSED');
+  pauseSession(
+    venueId: string,
+    sessionId: string,
+    staffId: string,
+  ): Promise<SessionDetails> {
+    return this.transition(venueId, sessionId, staffId, ['ACTIVE'], 'PAUSED');
   }
 
-  resumeSession(venueId: string, sessionId: string): Promise<SessionDetails> {
-    return this.transition(venueId, sessionId, ['PAUSED'], 'ACTIVE');
+  resumeSession(
+    venueId: string,
+    sessionId: string,
+    staffId: string,
+  ): Promise<SessionDetails> {
+    return this.transition(venueId, sessionId, staffId, ['PAUSED'], 'ACTIVE');
   }
 
   // Las entradas PENDING se dejan tal cual a proposito: en una sesion cerrada,
   // v_unplayed_requests ya las cuenta como "la sesion cerro antes de su
   // turno". Pasarlas a REMOVED las haria pasar por retiradas por el personal.
-  closeSession(venueId: string, sessionId: string): Promise<SessionDetails> {
-    return this.transition(venueId, sessionId, OPEN_SESSION_STATUSES, 'CLOSED');
+  closeSession(
+    venueId: string,
+    sessionId: string,
+    staffId: string,
+  ): Promise<SessionDetails> {
+    return this.transition(
+      venueId,
+      sessionId,
+      staffId,
+      OPEN_SESSION_STATUSES,
+      'CLOSED',
+    );
   }
 
   // Cambio de estado condicionado en un solo UPDATE: si dos personas pulsan
   // a la vez, solo una transicion se aplica y la otra recibe 409.
-  private async transition(
+  private transition(
     venueId: string,
     sessionId: string,
+    staffId: string,
     allowedFrom: SessionStatus[],
     to: SessionStatus,
   ): Promise<SessionDetails> {
-    const result = await this.sessionRepository
-      .createQueryBuilder()
-      .update(MusicSession)
-      .set({
-        status: to,
-        ...(to === 'CLOSED' ? { endedAt: () => 'now()' } : {}),
-      })
-      .where('id = :sessionId AND venue_id = :venueId', { sessionId, venueId })
-      .andWhere('status IN (:...allowedFrom)', { allowedFrom })
-      .execute();
+    return this.dataSource.transaction(async (manager) => {
+      const result = await manager
+        .createQueryBuilder()
+        .update(MusicSession)
+        .set({
+          status: to,
+          ...(to === 'CLOSED' ? { endedAt: () => 'now()' } : {}),
+        })
+        .where('id = :sessionId AND venue_id = :venueId', {
+          sessionId,
+          venueId,
+        })
+        .andWhere('status IN (:...allowedFrom)', { allowedFrom })
+        .execute();
 
-    // Filtrar tambien por venue_id hace que una sesion de otro local se vea
-    // como inexistente, aunque se conozca su id.
-    const session = await this.sessionRepository.findOneBy({
-      id: sessionId,
-      venueId,
+      // Filtrar tambien por venue_id hace que una sesion de otro local se vea
+      // como inexistente, aunque se conozca su id.
+      const session = await manager.findOneBy(MusicSession, {
+        id: sessionId,
+        venueId,
+      });
+      if (!session) {
+        throw new NotFoundException('Session not found');
+      }
+      if (result.affected === 0) {
+        throw new ConflictException(
+          `Cannot change a ${session.status} session to ${to}`,
+        );
+      }
+      await this.recordSessionEvent(manager, session, staffId);
+      return this.toDetails(session);
     });
-    if (!session) {
-      throw new NotFoundException('Session not found');
-    }
-    if (result.affected === 0) {
-      throw new ConflictException(
-        `Cannot change a ${session.status} session to ${to}`,
-      );
-    }
-    return this.toDetails(session);
+  }
+
+  // Reanudar emite SESSION_ACTIVE igual que abrir: el evento registra el
+  // estado al que entra la sesion, no la accion que lo provoco.
+  private recordSessionEvent(
+    manager: EntityManager,
+    session: MusicSession,
+    staffId: string,
+  ): Promise<void> {
+    return this.activityEvents.record(manager, {
+      eventType: SESSION_EVENT_BY_STATUS[session.status],
+      venueId: session.venueId,
+      sessionId: session.id,
+      staffUserId: staffId,
+    });
   }
 
   private isOneOpenSessionViolation(error: unknown): boolean {

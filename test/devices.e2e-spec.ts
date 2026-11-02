@@ -134,6 +134,20 @@ describe('Devices (e2e)', () => {
     ).resolves.toBe(1);
   });
 
+  it('la adhesion a la sesion deja un solo evento, aunque se escanee varias veces', async () => {
+    const [device] = await dataSource
+      .getRepository(AnonymousDevice)
+      .findBy({ venueId: barA.venue.id });
+    const events = await dataSource.query<
+      Array<{ venue_id: string; device_id: string }>
+    >(
+      `SELECT venue_id, device_id FROM tunio.activity_events
+        WHERE session_id = $1 AND event_type = 'DEVICE_JOINED'`,
+      [sessionIdA],
+    );
+    expect(events).toEqual([{ venue_id: barA.venue.id, device_id: device.id }]);
+  });
+
   it('el mismo telefono en otro local tiene otro hash', async () => {
     const response = await register(qrTokenB).expect(200);
     // Sin sesion abierta: se registra igual, pero no hay a que adherirlo.

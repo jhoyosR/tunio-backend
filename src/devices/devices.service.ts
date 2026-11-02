@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
+import { ActivityEventsService } from '../activity/activity-events.service';
 import { SessionDevice } from '../sessions/entities/session-device.entity';
 import { Venue } from '../venues/entities/venue.entity';
 import { QrAccessService, QrResolution } from '../venues/qr-access.service';
@@ -11,6 +12,7 @@ export class DevicesService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly qrAccessService: QrAccessService,
+    private readonly activityEvents: ActivityEventsService,
   ) {}
 
   // Entrada del cliente al local. Aplica las mismas comprobaciones que
@@ -68,18 +70,33 @@ export class DevicesService {
     return (result.raw as Array<{ id: string }>)[0].id;
   }
 
+  // DEVICE_JOINED se emite solo la primera vez que el dispositivo entra a la
+  // sesion; volver a escanear solo renueva last_seen_at. xmax = 0 es como
+  // PostgreSQL distingue, dentro de un upsert, la fila insertada de la
+  // actualizada.
   private async attachToSession(
     manager: EntityManager,
     venueId: string,
     sessionId: string,
     deviceId: string,
   ): Promise<void> {
-    await manager
+    const result = await manager
       .createQueryBuilder()
       .insert()
       .into(SessionDevice)
       .values({ sessionId, deviceId, venueId })
       .orUpdate(['last_seen_at'], ['session_id', 'device_id'])
+      .returning('(xmax = 0) AS inserted')
       .execute();
+
+    const [{ inserted }] = result.raw as Array<{ inserted: boolean }>;
+    if (inserted) {
+      await this.activityEvents.record(manager, {
+        eventType: 'DEVICE_JOINED',
+        venueId,
+        sessionId,
+        deviceId,
+      });
+    }
   }
 }

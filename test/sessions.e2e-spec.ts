@@ -1,6 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
+import { ActivityEventsService } from '../src/activity/activity-events.service';
 import { Song } from '../src/catalog/entities/song.entity';
 import { AnonymousDevice } from '../src/devices/entities/anonymous-device.entity';
 import { DefaultPlaylist } from '../src/playlists/entities/default-playlist.entity';
@@ -139,6 +140,32 @@ describe('Sessions (e2e)', () => {
       expect(unplayed.reason).toBe('La sesión cerró antes de su turno');
     });
 
+    it('cada cambio de estado deja su evento, con quien lo hizo', async () => {
+      const events = await dataSource.query<
+        Array<{ event_type: string; venue_id: string; actor: string }>
+      >(
+        `SELECT e.event_type, e.venue_id, s.display_name AS actor
+           FROM tunio.activity_events e
+           JOIN tunio.staff_users s ON s.id = e.staff_user_id
+          WHERE e.session_id = $1
+          ORDER BY e.id`,
+        [sessionId],
+      );
+      // La segunda pausa respondio 409: no deja evento.
+      expect(events).toEqual(
+        [
+          ['SESSION_ACTIVE', 'dj-a'],
+          ['SESSION_PAUSED', 'dj-a'],
+          ['SESSION_ACTIVE', 'dj-a'],
+          ['SESSION_CLOSED', 'admin-a'],
+        ].map(([eventType, actor]) => ({
+          event_type: eventType,
+          venue_id: barA.venue.id,
+          actor,
+        })),
+      );
+    });
+
     it('una sesion cerrada no se puede reabrir ni pausar', async () => {
       const path = `${sessionsPath(barA)}/${sessionId}`;
       await authed(app, 'post', `${path}/resume`, barA.tokens['dj-a']).expect(
@@ -171,6 +198,45 @@ describe('Sessions (e2e)', () => {
 
     const statuses = responses.map((response) => response.status).sort();
     expect(statuses).toEqual([201, 409, 409, 409, 409]);
+
+    // Las aperturas rechazadas no dejan evento.
+    const [{ count }] = await dataSource.query<Array<{ count: string }>>(
+      `SELECT COUNT(*) AS count FROM tunio.activity_events
+        WHERE venue_id = $1 AND event_type = 'SESSION_ACTIVE'`,
+      [barB.venue.id],
+    );
+    expect(Number(count)).toBe(1);
+  });
+
+  // Sin disparadores, esto es lo que garantiza que no haya hechos sin evento.
+  it('si el evento no se puede escribir, el cambio de estado tampoco se aplica', async () => {
+    const currentPath = `${sessionsPath(barB)}/current`;
+    const current = await authed(
+      app,
+      'get',
+      currentPath,
+      barB.tokens['dj-b'],
+    ).expect(200);
+    const sessionId = current.body.data.id as string;
+    const recordSpy = jest
+      .spyOn(app.get(ActivityEventsService), 'record')
+      .mockRejectedValueOnce(new Error('event store unavailable'));
+
+    await authed(
+      app,
+      'post',
+      `${sessionsPath(barB)}/${sessionId}/pause`,
+      barB.tokens['dj-b'],
+    ).expect(500);
+    recordSpy.mockRestore();
+
+    const after = await authed(
+      app,
+      'get',
+      currentPath,
+      barB.tokens['dj-b'],
+    ).expect(200);
+    expect(after.body.data.status).toBe('ACTIVE');
   });
 
   it('un id de sesion mal formado responde 400', () => {
