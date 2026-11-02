@@ -14,6 +14,8 @@ export class YoutubeQuotaService {
   // queda para las llamadas de 1 unidad (verificar un video antes de encolar,
   // BE-11), que no deben quedarse sin cuota porque las busquedas la agotaron.
   readonly searchBudget: number;
+  // Las verificaciones de 1 unidad pueden usar la cuota entera, reserva incluida.
+  readonly dailyQuota: number;
 
   constructor(
     private readonly dataSource: DataSource,
@@ -22,6 +24,7 @@ export class YoutubeQuotaService {
     const dailyQuota = configService.getOrThrow<number>(
       'tunio.youtubeDailyQuota',
     );
+    this.dailyQuota = dailyQuota;
     const reservePct = configService.getOrThrow<number>(
       'tunio.youtubeQuotaReservePct',
     );

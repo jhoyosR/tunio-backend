@@ -22,6 +22,7 @@ const CONCURRENT_SEARCHES = 5;
 const result = (id: string): SearchResult => ({
   youtubeVideoId: id,
   title: `Title ${id}`,
+  artistDisplay: 'Artist',
   channelTitle: 'Channel',
   durationSeconds: 200,
   thumbnailUrl: null,

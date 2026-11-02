@@ -36,14 +36,21 @@ describe('YoutubeClient', () => {
   const video = (id: string, overrides: object = {}) => ({
     id,
     snippet: {
-      title: `Title ${id}`,
+      title: `Artist ${id} - Song ${id} (Official Video)`,
       channelTitle: 'Channel',
       thumbnails: { medium: { url: `https://img/${id}.jpg` } },
     },
     contentDetails: { duration: 'PT3M' },
-    status: { embeddable: true },
+    status: {
+      embeddable: true,
+      privacyStatus: 'public',
+      uploadStatus: 'processed',
+    },
     ...overrides,
   });
+
+  const videosResponse = (...videos: object[]) =>
+    jsonResponse({ items: videos });
 
   beforeEach(() => {
     fetchMock.mockReset();
@@ -59,10 +66,12 @@ describe('YoutubeClient', () => {
       )
       .mockResolvedValueOnce(jsonResponse({ items: [video('a'), video('b')] }));
 
+    // Titulo y artista ya salen separados por la regla de song-identity.
     await expect(client.searchVideos('salsa')).resolves.toEqual([
       {
         youtubeVideoId: 'b',
-        title: 'Title b',
+        title: 'Song b',
+        artistDisplay: 'Artist b',
         channelTitle: 'Channel',
         durationSeconds: 180,
         thumbnailUrl: 'https://img/b.jpg',
@@ -96,6 +105,76 @@ describe('YoutubeClient', () => {
 
     const results = await client.searchVideos('salsa');
     expect(results.map((result) => result.youtubeVideoId)).toEqual(['ok']);
+  });
+
+  describe('getVideos', () => {
+    const lookUp = async (overrides: object) => {
+      fetchMock.mockResolvedValueOnce(videosResponse(video('x', overrides)));
+      return (await client.getVideos(['x'])).get('x')!.playable;
+    };
+
+    it('un video publico, embebible y procesado es reproducible', async () => {
+      await expect(lookUp({})).resolves.toBe(true);
+    });
+
+    it.each([
+      [
+        'privado',
+        {
+          status: {
+            embeddable: true,
+            privacyStatus: 'private',
+            uploadStatus: 'processed',
+          },
+        },
+      ],
+      [
+        'sin procesar',
+        {
+          status: {
+            embeddable: true,
+            privacyStatus: 'public',
+            uploadStatus: 'uploaded',
+          },
+        },
+      ],
+      [
+        'bloqueado en Colombia',
+        {
+          contentDetails: {
+            duration: 'PT3M',
+            regionRestriction: { blocked: ['CO', 'US'] },
+          },
+        },
+      ],
+      [
+        'permitido solo fuera de Colombia',
+        {
+          contentDetails: {
+            duration: 'PT3M',
+            regionRestriction: { allowed: ['US'] },
+          },
+        },
+      ],
+    ])('%s no es reproducible', async (_case, overrides) => {
+      await expect(lookUp(overrides)).resolves.toBe(false);
+    });
+
+    it('una restriccion de region que no afecta a Colombia no lo impide', async () => {
+      await expect(
+        lookUp({
+          contentDetails: {
+            duration: 'PT3M',
+            regionRestriction: { blocked: ['US'] },
+          },
+        }),
+      ).resolves.toBe(true);
+    });
+
+    it('un video borrado no aparece en el resultado', async () => {
+      fetchMock.mockResolvedValueOnce(videosResponse());
+      expect((await client.getVideos(['gone'])).has('gone')).toBe(false);
+    });
   });
 
   it('sin resultados no gasta la llamada a videos.list', async () => {

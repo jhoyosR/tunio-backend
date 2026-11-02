@@ -1,24 +1,37 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { deriveSongIdentity } from './song-identity';
 
 const API_BASE_URL = 'https://www.googleapis.com/youtube/v3';
 const MAX_RESULTS = 10;
 // Por debajo del objetivo de 2 s de RF-02: mejor fallar y servir la cache
 // vencida que dejar al cliente esperando.
 const REQUEST_TIMEOUT_MS = 1500;
+// El sistema opera en Colombia (zona horaria fija America/Bogota): un video
+// bloqueado aqui por region no suena en la pantalla del bar.
+const PLAYBACK_REGION = 'CO';
 
 // Coste en unidades de cuota de una busqueda completa: search.list (100) mas
 // un videos.list (1) con todos los ids juntos para obtener la duracion.
 export const SEARCH_QUOTA_COST = 101;
+// Coste de verificar un video por id antes de encolarlo.
+export const VIDEO_LOOKUP_QUOTA_COST = 1;
 
 // Resultado ya normalizado: es lo que se guarda en la cache y lo que recibe
-// la app. El artista no va aqui: lo deriva BE-11.
+// la app. Titulo y artista salen de la regla de song-identity.ts.
 export interface SearchResult {
   youtubeVideoId: string;
   title: string;
+  artistDisplay: string | null;
   channelTitle: string;
   durationSeconds: number;
   thumbnailUrl: string | null;
+}
+
+// Lo que se sabe de un video al consultarlo por id, reproducible o no.
+export interface VideoDetails {
+  playable: boolean;
+  song: SearchResult;
 }
 
 // El mensaje nunca incluye la URL de la peticion: lleva la clave de la API.
@@ -36,8 +49,15 @@ interface VideosListResponse {
       channelTitle?: string;
       thumbnails?: Record<string, { url?: string } | undefined>;
     };
-    contentDetails?: { duration?: string };
-    status?: { embeddable?: boolean };
+    contentDetails?: {
+      duration?: string;
+      regionRestriction?: { allowed?: string[]; blocked?: string[] };
+    };
+    status?: {
+      embeddable?: boolean;
+      privacyStatus?: string;
+      uploadStatus?: string;
+    };
   }>;
 }
 
@@ -67,34 +87,25 @@ export class YoutubeClient {
       return [];
     }
 
-    const videos = await this.get<VideosListResponse>('videos', {
+    const videos = await this.getVideos(ids);
+    // Se conserva el orden de relevancia de search.list, y solo entra lo que
+    // la pantalla del bar puede reproducir.
+    return ids.flatMap((id) => {
+      const video = videos.get(id);
+      return video?.playable ? [video.song] : [];
+    });
+  }
+
+  // Un solo videos.list (1 unidad) para hasta 50 ids. Los que YouTube no
+  // devuelve (borrados o privados) no aparecen en el mapa.
+  async getVideos(ids: string[]): Promise<Map<string, VideoDetails>> {
+    const response = await this.get<VideosListResponse>('videos', {
       part: 'snippet,contentDetails,status',
       id: ids.join(','),
     });
-    const byId = new Map(
-      (videos.items ?? []).map((video) => [video.id, video]),
+    return new Map(
+      (response.items ?? []).map((video) => [video.id, toVideoDetails(video)]),
     );
-
-    // Se conserva el orden de relevancia de search.list.
-    return ids.flatMap((id) => {
-      const video = byId.get(id);
-      const durationSeconds = parseIsoDuration(video?.contentDetails?.duration);
-      // Sin duracion (directos) o no embebible: no puede entrar en la cola.
-      if (!video?.status?.embeddable || !durationSeconds) {
-        return [];
-      }
-      const thumbnails = video.snippet?.thumbnails ?? {};
-      return [
-        {
-          youtubeVideoId: id,
-          title: video.snippet?.title ?? '',
-          channelTitle: video.snippet?.channelTitle ?? '',
-          durationSeconds,
-          thumbnailUrl:
-            thumbnails.medium?.url ?? thumbnails.default?.url ?? null,
-        },
-      ];
-    });
   }
 
   private async get<T>(
@@ -124,6 +135,41 @@ export class YoutubeClient {
     }
     return (await response.json()) as T;
   }
+}
+
+type VideoItem = NonNullable<VideosListResponse['items']>[number];
+
+function toVideoDetails(video: VideoItem): VideoDetails {
+  const durationSeconds = parseIsoDuration(video.contentDetails?.duration);
+  const thumbnails = video.snippet?.thumbnails ?? {};
+  const channelTitle = video.snippet?.channelTitle ?? '';
+  return {
+    playable: isPlayable(video, durationSeconds),
+    song: {
+      youtubeVideoId: video.id,
+      ...deriveSongIdentity(video.snippet?.title ?? '', channelTitle),
+      channelTitle,
+      durationSeconds,
+      thumbnailUrl: thumbnails.medium?.url ?? thumbnails.default?.url ?? null,
+    },
+  };
+}
+
+// Sin duracion son directos; los demas casos no los admite el reproductor
+// embebido o no estan disponibles en la region.
+function isPlayable(video: VideoItem, durationSeconds: number): boolean {
+  const restriction = video.contentDetails?.regionRestriction;
+  const regionBlocked =
+    (restriction?.blocked?.includes(PLAYBACK_REGION) ?? false) ||
+    (restriction?.allowed !== undefined &&
+      !restriction.allowed.includes(PLAYBACK_REGION));
+  return (
+    durationSeconds > 0 &&
+    video.status?.embeddable === true &&
+    video.status.privacyStatus !== 'private' &&
+    video.status.uploadStatus === 'processed' &&
+    !regionBlocked
+  );
 }
 
 // Duracion ISO 8601 de YouTube (PT1H2M3S, P1DT2H...). Devuelve 0 para los
