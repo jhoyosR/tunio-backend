@@ -12,6 +12,8 @@ import { RequestLoggingMiddleware } from './common/middleware/request-logging.mi
 import { ENTITIES } from './database/entities';
 import { AuthModule } from './auth/auth.module';
 import { VenuesModule } from './venues/venues.module';
+import { SessionsModule } from './sessions/sessions.module';
+import { DevicesModule } from './devices/devices.module';
 
 @Module({
   imports: [
@@ -39,6 +41,8 @@ import { VenuesModule } from './venues/venues.module';
     }),
     AuthModule,
     VenuesModule,
+    SessionsModule,
+    DevicesModule,
   ],
   controllers: [AppController],
   providers: [

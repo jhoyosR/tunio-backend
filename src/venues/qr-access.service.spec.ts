@@ -1,7 +1,7 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import * as QRCode from 'qrcode';
 import { Repository } from 'typeorm';
-import { MusicSession } from '../sessions/entities/music-session.entity';
+import { SessionsService } from '../sessions/sessions.service';
 import { QrAccess } from './entities/qr-access.entity';
 import { QrAccessService } from './qr-access.service';
 
@@ -30,7 +30,7 @@ describe('QrAccessService', () => {
     findSession.mockReset().mockResolvedValue(null);
     service = new QrAccessService(
       { findOne: findQr } as unknown as Repository<QrAccess>,
-      { findOne: findSession } as unknown as Repository<MusicSession>,
+      { findOpenSession: findSession } as unknown as SessionsService,
     );
   });
 

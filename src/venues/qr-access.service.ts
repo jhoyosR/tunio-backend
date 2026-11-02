@@ -6,11 +6,9 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
 import * as QRCode from 'qrcode';
-import { In, Repository } from 'typeorm';
-import {
-  MusicSession,
-  SessionStatus,
-} from '../sessions/entities/music-session.entity';
+import { Repository } from 'typeorm';
+import { SessionStatus } from '../sessions/entities/music-session.entity';
+import { SessionsService } from '../sessions/sessions.service';
 import { QrAccess } from './entities/qr-access.entity';
 
 // Tamano pensado para imprimir: a 1024 px el codigo se lee bien incluso
@@ -18,8 +16,6 @@ import { QrAccess } from './entities/qr-access.entity';
 const QR_IMAGE_WIDTH_PX = 1024;
 const QR_IMAGE_MARGIN_MODULES = 4;
 const QR_ERROR_CORRECTION = 'M';
-
-const OPEN_SESSION_STATUSES: SessionStatus[] = ['ACTIVE', 'PAUSED'];
 
 export interface QrAccessDetails {
   publicToken: string;
@@ -50,8 +46,7 @@ export class QrAccessService {
   constructor(
     @InjectRepository(QrAccess)
     private readonly qrAccessRepository: Repository<QrAccess>,
-    @InjectRepository(MusicSession)
-    private readonly sessionRepository: Repository<MusicSession>,
+    private readonly sessionsService: SessionsService,
   ) {}
 
   async getQrAccess(venueId: string): Promise<QrAccessDetails> {
@@ -108,12 +103,9 @@ export class QrAccessService {
       throw new ForbiddenException('QR access is disabled');
     }
 
-    const openSession = await this.sessionRepository.findOne({
-      where: {
-        venueId: qrAccess.venueId,
-        status: In(OPEN_SESSION_STATUSES),
-      },
-    });
+    const openSession = await this.sessionsService.findOpenSession(
+      qrAccess.venueId,
+    );
 
     return {
       venueId: qrAccess.venueId,
