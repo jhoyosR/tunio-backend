@@ -26,18 +26,37 @@ export class DevicesService {
     const resolution = await this.qrAccessService.resolveToken(publicToken);
     const { venueId, openSession } = resolution;
 
-    await this.dataSource.transaction(async (manager) => {
-      const deviceHash = hashInstallationId(
+    await this.dataSource.transaction((manager) =>
+      this.identifyDevice(
+        manager,
+        venueId,
         installationId,
-        await this.findVenueSalt(manager, venueId),
-      );
-      const deviceId = await this.upsertDevice(manager, venueId, deviceHash);
-      if (openSession) {
-        await this.attachToSession(manager, venueId, openSession.id, deviceId);
-      }
-    });
+        openSession?.id ?? null,
+      ),
+    );
 
     return resolution;
+  }
+
+  // Convierte el UUID de instalacion en el id del dispositivo anonimo del
+  // local, registrandolo si es nuevo, y lo adhiere a la sesion si se indica.
+  // Corre en la transaccion de quien llama: pedir o votar (BE-12) lo usa para
+  // adherir al dispositivo que se registro antes de abrirse la sesion.
+  async identifyDevice(
+    manager: EntityManager,
+    venueId: string,
+    installationId: string,
+    sessionId: string | null,
+  ): Promise<string> {
+    const deviceHash = hashInstallationId(
+      installationId,
+      await this.findVenueSalt(manager, venueId),
+    );
+    const deviceId = await this.upsertDevice(manager, venueId, deviceHash);
+    if (sessionId) {
+      await this.attachToSession(manager, venueId, sessionId, deviceId);
+    }
+    return deviceId;
   }
 
   private async findVenueSalt(

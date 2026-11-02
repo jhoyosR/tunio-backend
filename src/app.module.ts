@@ -15,6 +15,7 @@ import { VenuesModule } from './venues/venues.module';
 import { SessionsModule } from './sessions/sessions.module';
 import { DevicesModule } from './devices/devices.module';
 import { CatalogModule } from './catalog/catalog.module';
+import { QueueModule } from './queue/queue.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { CatalogModule } from './catalog/catalog.module';
     SessionsModule,
     DevicesModule,
     CatalogModule,
+    QueueModule,
   ],
   controllers: [AppController],
   providers: [

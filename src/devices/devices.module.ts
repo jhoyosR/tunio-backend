@@ -8,5 +8,6 @@ import { DevicesService } from './devices.service';
   imports: [VenuesModule, ActivityModule],
   controllers: [DevicesController],
   providers: [DevicesService],
+  exports: [DevicesService],
 })
 export class DevicesModule {}
