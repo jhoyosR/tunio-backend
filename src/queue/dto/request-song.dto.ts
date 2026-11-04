@@ -1,8 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsUUID, Matches } from 'class-validator';
-
-// Los ids de video de YouTube tienen 11 caracteres de este alfabeto.
-const YOUTUBE_VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+import { YOUTUBE_VIDEO_ID } from '../../catalog/youtube-video-id';
 
 export class RequestSongDto {
   // Igual que en el registro del dispositivo (BE-07): viaja en el cuerpo, que
