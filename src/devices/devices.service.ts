@@ -59,6 +59,24 @@ export class DevicesService {
     return deviceId;
   }
 
+  // Solo lectura: consultar la cola (BE-13) no registra al dispositivo ni
+  // renueva su ultima aparicion. null si el telefono nunca entro al local.
+  async findDeviceId(
+    venueId: string,
+    installationId: string,
+  ): Promise<string | null> {
+    const manager = this.dataSource.manager;
+    const deviceHash = hashInstallationId(
+      installationId,
+      await this.findVenueSalt(manager, venueId),
+    );
+    const device = await manager.findOne(AnonymousDevice, {
+      where: { venueId, deviceHash },
+      select: { id: true },
+    });
+    return device?.id ?? null;
+  }
+
   private async findVenueSalt(
     manager: EntityManager,
     venueId: string,
