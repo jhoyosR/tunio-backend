@@ -51,8 +51,9 @@ export class ModerationController {
   liftBlock(
     @Param('venueId') venueId: string,
     @Param('blockId', ParseUUIDPipe) blockId: string,
+    @CurrentStaff() staff: AuthenticatedStaff,
   ): Promise<BlockDetails> {
-    return this.moderationService.liftBlock(venueId, blockId);
+    return this.moderationService.liftBlock(venueId, staff.staffId, blockId);
   }
 
   @Post('queue/items/:queueItemId/remove')
@@ -60,7 +61,12 @@ export class ModerationController {
   removeEntry(
     @Param('venueId') venueId: string,
     @Param('queueItemId', ParseUUIDPipe) queueItemId: string,
+    @CurrentStaff() staff: AuthenticatedStaff,
   ): Promise<void> {
-    return this.moderationService.removeEntry(venueId, queueItemId);
+    return this.moderationService.removeEntry(
+      venueId,
+      staff.staffId,
+      queueItemId,
+    );
   }
 }

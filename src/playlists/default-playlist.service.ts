@@ -10,6 +10,7 @@ import {
   QueryFailedError,
   Repository,
 } from 'typeorm';
+import { AdminActionsService } from '../activity/admin-actions.service';
 import { Song } from '../catalog/entities/song.entity';
 import { SongsService } from '../catalog/songs.service';
 import { DefaultPlaylistTrack } from './entities/default-playlist-track.entity';
@@ -50,6 +51,7 @@ export class DefaultPlaylistService {
     private readonly trackRepository: Repository<DefaultPlaylistTrack>,
     private readonly dataSource: DataSource,
     private readonly songsService: SongsService,
+    private readonly adminActions: AdminActionsService,
   ) {}
 
   // Las pistas salen en el orden en que sonaran: por position.
@@ -75,15 +77,24 @@ export class DefaultPlaylistService {
 
   async addTrack(
     venueId: string,
+    staffId: string,
     youtubeVideoId: string,
   ): Promise<PlaylistTrack> {
     // Fuera de la transaccion, como en BE-12: consulta a YouTube, y esperar a
     // la red con la lista bloqueada frenaria a quien anade a la vez.
     const song = await this.songsService.resolvePlayableSong(youtubeVideoId);
     try {
-      const track = await this.dataSource.transaction((manager) =>
-        this.appendTrack(manager, venueId, song),
-      );
+      const track = await this.dataSource.transaction(async (manager) => {
+        const appended = await this.appendTrack(manager, venueId, song);
+        await this.adminActions.record(manager, {
+          venueId,
+          actorStaffId: staffId,
+          action: 'PLAYLIST_ADD',
+          songId: song.id,
+          details: { trackId: appended.id, position: appended.position },
+        });
+        return appended;
+      });
       return this.toTrack(track, song);
     } catch (error) {
       if (this.isDuplicateSongViolation(error)) {
@@ -98,11 +109,33 @@ export class DefaultPlaylistService {
   // Borrado fisico: playbacks no referencia esta tabla, asi que una cancion
   // que ya sono se puede quitar sin tocar su historial. Filtrar por venue_id
   // hace que una pista de otro local se vea como inexistente.
-  async removeTrack(venueId: string, trackId: string): Promise<void> {
-    const result = await this.trackRepository.delete({ id: trackId, venueId });
-    if (result.affected === 0) {
-      throw new NotFoundException('Track not found in the default playlist');
-    }
+  // DELETE ... RETURNING: dos borrados simultaneos de la misma pista dejan
+  // un solo registro en la bitacora; el otro recibe 404.
+  async removeTrack(
+    venueId: string,
+    staffId: string,
+    trackId: string,
+  ): Promise<void> {
+    await this.dataSource.transaction(async (manager) => {
+      const result = await manager
+        .createQueryBuilder()
+        .delete()
+        .from(DefaultPlaylistTrack)
+        .where('id = :trackId AND venue_id = :venueId', { trackId, venueId })
+        .returning(['songId', 'position'])
+        .execute();
+      const rows = result.raw as { song_id: string; position: number }[];
+      if (rows.length === 0) {
+        throw new NotFoundException('Track not found in the default playlist');
+      }
+      await this.adminActions.record(manager, {
+        venueId,
+        actorStaffId: staffId,
+        action: 'PLAYLIST_REMOVE',
+        songId: rows[0].song_id,
+        details: { trackId, position: rows[0].position },
+      });
+    });
   }
 
   // FOR UPDATE sobre la lista serializa a quienes anaden a la vez: sin el,

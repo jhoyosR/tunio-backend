@@ -11,7 +11,12 @@ import {
   StreamableFile,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiProduces, ApiTags } from '@nestjs/swagger';
-import { Public, Roles } from '../auth/decorators/auth.decorators';
+import {
+  CurrentStaff,
+  Public,
+  Roles,
+} from '../auth/decorators/auth.decorators';
+import type { AuthenticatedStaff } from '../auth/interfaces/authenticated-staff.interface';
 import { UpdateQrAccessDto } from './dto/update-qr-access.dto';
 import {
   QrAccessDetails,
@@ -44,9 +49,14 @@ export class QrAccessController {
   @Patch('venues/:venueId/qr')
   setEnabled(
     @Param('venueId') venueId: string,
+    @CurrentStaff() staff: AuthenticatedStaff,
     @Body() dto: UpdateQrAccessDto,
   ): Promise<QrAccessDetails> {
-    return this.qrAccessService.setEnabled(venueId, dto.isEnabled);
+    return this.qrAccessService.setEnabled(
+      venueId,
+      staff.staffId,
+      dto.isEnabled,
+    );
   }
 
   @ApiBearerAuth()

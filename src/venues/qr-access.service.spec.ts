@@ -1,6 +1,7 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import * as QRCode from 'qrcode';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
+import { AdminActionsService } from '../activity/admin-actions.service';
 import { SessionsService } from '../sessions/sessions.service';
 import { QrAccess } from './entities/qr-access.entity';
 import { QrAccessService } from './qr-access.service';
@@ -31,6 +32,9 @@ describe('QrAccessService', () => {
     service = new QrAccessService(
       { findOne: findQr } as unknown as Repository<QrAccess>,
       { findOpenSession: findSession } as unknown as SessionsService,
+      // resolveToken no escribe: no necesita transaccion ni bitacora.
+      {} as DataSource,
+      {} as AdminActionsService,
     );
   });
 

@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DataSource, EntityManager, QueryFailedError } from 'typeorm';
+import { AdminActionsService } from '../activity/admin-actions.service';
 import { Song } from '../catalog/entities/song.entity';
 import { PlayerService } from '../playback/player.service';
 import { QueueItem } from '../queue/entities/queue-item.entity';
@@ -50,6 +51,7 @@ export class ModerationService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly playerService: PlayerService,
+    private readonly adminActions: AdminActionsService,
     private readonly liveUpdates: LiveUpdatesService,
     configService: ConfigService,
   ) {
@@ -96,20 +98,27 @@ export class ModerationService {
           songId,
           reason,
         );
-        if (!session) {
-          return { blockId, removedFromQueue: false, skippedPlayback: false };
-        }
-        const removedFromQueue = await this.blockPendingEntry(
-          manager,
-          session,
+        const removedFromQueue = session
+          ? await this.blockPendingEntry(manager, session, songId)
+          : false;
+        // El salto es consecuencia del bloqueo, no una accion aparte: no se
+        // registra como SKIP.
+        const skippedPlayback = session
+          ? await this.playerService.skipBlockedSong(
+              manager,
+              session,
+              songId,
+              staffId,
+            )
+          : false;
+        await this.adminActions.record(manager, {
+          venueId,
+          actorStaffId: staffId,
+          action: 'BLOCK',
+          sessionId: session?.id ?? null,
           songId,
-        );
-        const skippedPlayback = await this.playerService.skipBlockedSong(
-          manager,
-          session,
-          songId,
-          staffId,
-        );
+          details: { blockId, reason, removedFromQueue, skippedPlayback },
+        });
         return { blockId, removedFromQueue, skippedPlayback };
       });
     } catch (error) {
@@ -129,17 +138,37 @@ export class ModerationService {
 
   // Levantar no devuelve a la cola las entradas que el bloqueo saco: ya
   // salieron. La cancion se puede volver a pedir y entra como entrada nueva.
-  // UPDATE condicionado: dos levantamientos simultaneos aplican uno solo.
-  async liftBlock(venueId: string, blockId: string): Promise<BlockDetails> {
-    const result = await this.dataSource.manager
-      .createQueryBuilder()
-      .update(BlockedSong)
-      .set({ liftedAt: () => 'now()' })
-      .where('id = :blockId AND venue_id = :venueId', { blockId, venueId })
-      .andWhere('lifted_at IS NULL AND expires_at > now()')
-      .execute();
+  // UPDATE condicionado: dos levantamientos simultaneos aplican uno solo, y
+  // solo ese queda en la bitacora.
+  async liftBlock(
+    venueId: string,
+    staffId: string,
+    blockId: string,
+  ): Promise<BlockDetails> {
+    const lifted = await this.dataSource.transaction(async (manager) => {
+      const result = await manager
+        .createQueryBuilder()
+        .update(BlockedSong)
+        .set({ liftedAt: () => 'now()' })
+        .where('id = :blockId AND venue_id = :venueId', { blockId, venueId })
+        .andWhere('lifted_at IS NULL AND expires_at > now()')
+        .returning(['songId'])
+        .execute();
+      const rows = result.raw as { song_id: string }[];
+      if (rows.length === 0) {
+        return false;
+      }
+      await this.adminActions.record(manager, {
+        venueId,
+        actorStaffId: staffId,
+        action: 'UNBLOCK',
+        songId: rows[0].song_id,
+        details: { blockId },
+      });
+      return true;
+    });
     const details = await this.findDetails(venueId, blockId);
-    if (result.affected === 0) {
+    if (!lifted) {
       throw new ConflictException('This block is no longer active');
     }
     return details;
@@ -148,7 +177,11 @@ export class ModerationService {
   // Retirar es solo para lo que espera turno: lo que suena se salta (BE-16).
   // La entrada pasa a REMOVED y no se borra: sus votos siguen para la
   // analitica, que la cuenta como «retirada por el personal».
-  async removeEntry(venueId: string, queueItemId: string): Promise<void> {
+  async removeEntry(
+    venueId: string,
+    staffId: string,
+    queueItemId: string,
+  ): Promise<void> {
     // Con la sesion tomada, el reproductor no puede empezar a la vez la
     // entrada que se esta retirando.
     await this.dataSource.transaction(async (manager) => {
@@ -173,6 +206,14 @@ export class ModerationService {
         { id: item.id },
         { status: 'REMOVED', finishedAt: () => 'now()' },
       );
+      await this.adminActions.record(manager, {
+        venueId,
+        actorStaffId: staffId,
+        action: 'REMOVE',
+        sessionId: session.id,
+        queueItemId: item.id,
+        songId: item.songId,
+      });
     });
     this.liveUpdates.venueChanged(venueId);
   }

@@ -12,6 +12,8 @@ import {
   Repository,
 } from 'typeorm';
 import { ActivityEventsService } from '../activity/activity-events.service';
+import { AdminActionsService } from '../activity/admin-actions.service';
+import { AdminActionType } from '../activity/entities/admin-action.entity';
 import { Playback } from '../playback/entities/playback.entity';
 import { finishPlayback } from '../playback/finish-playback';
 import { DefaultPlaylist } from '../playlists/entities/default-playlist.entity';
@@ -31,6 +33,15 @@ const SESSION_EVENT_BY_STATUS = {
   CLOSED: 'SESSION_CLOSED',
 } as const satisfies Record<SessionStatus, string>;
 
+// Accion del personal segun el estado al que pasa la sesion. Abrir no es una
+// transicion (crea la sesion) y se registra aparte como SESSION_OPEN; la
+// unica forma de volver a ACTIVE es reanudar.
+const ADMIN_ACTION_BY_TRANSITION = {
+  ACTIVE: 'SESSION_RESUME',
+  PAUSED: 'SESSION_PAUSE',
+  CLOSED: 'SESSION_CLOSE',
+} as const satisfies Record<SessionStatus, AdminActionType>;
+
 export interface SessionDetails {
   id: string;
   status: SessionStatus;
@@ -49,6 +60,7 @@ export class SessionsService {
     private readonly playlistRepository: Repository<DefaultPlaylist>,
     private readonly dataSource: DataSource,
     private readonly activityEvents: ActivityEventsService,
+    private readonly adminActions: AdminActionsService,
     private readonly liveUpdates: LiveUpdatesService,
   ) {}
 
@@ -84,6 +96,12 @@ export class SessionsService {
           }),
         );
         await this.recordSessionEvent(manager, opened, staffId);
+        await this.adminActions.record(manager, {
+          venueId,
+          actorStaffId: staffId,
+          action: 'SESSION_OPEN',
+          sessionId: opened.id,
+        });
         return opened;
       });
       this.liveUpdates.venueChanged(venueId);
@@ -175,6 +193,12 @@ export class SessionsService {
         await this.skipRunningPlayback(manager, session.id, staffId);
       }
       await this.recordSessionEvent(manager, session, staffId);
+      await this.adminActions.record(manager, {
+        venueId,
+        actorStaffId: staffId,
+        action: ADMIN_ACTION_BY_TRANSITION[to],
+        sessionId: session.id,
+      });
       return this.toDetails(session);
     });
     this.liveUpdates.venueChanged(venueId);

@@ -1,6 +1,7 @@
 import { Controller, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { Roles } from '../auth/decorators/auth.decorators';
+import { CurrentStaff, Roles } from '../auth/decorators/auth.decorators';
+import type { AuthenticatedStaff } from '../auth/interfaces/authenticated-staff.interface';
 import {
   ClearQueueResult,
   QueueMaintenanceService,
@@ -17,7 +18,10 @@ export class QueueMaintenanceController {
   @Roles('ADMIN')
   @Post('clear')
   @HttpCode(HttpStatus.OK)
-  clearQueue(@Param('venueId') venueId: string): Promise<ClearQueueResult> {
-    return this.maintenanceService.clearQueue(venueId);
+  clearQueue(
+    @Param('venueId') venueId: string,
+    @CurrentStaff() staff: AuthenticatedStaff,
+  ): Promise<ClearQueueResult> {
+    return this.maintenanceService.clearQueue(venueId, staff.staffId);
   }
 }

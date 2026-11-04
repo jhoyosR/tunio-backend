@@ -6,7 +6,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
 import * as QRCode from 'qrcode';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
+import { AdminActionsService } from '../activity/admin-actions.service';
 import { SessionStatus } from '../sessions/entities/music-session.entity';
 import { SessionsService } from '../sessions/sessions.service';
 import { QrAccess } from './entities/qr-access.entity';
@@ -47,6 +48,8 @@ export class QrAccessService {
     @InjectRepository(QrAccess)
     private readonly qrAccessRepository: Repository<QrAccess>,
     private readonly sessionsService: SessionsService,
+    private readonly dataSource: DataSource,
+    private readonly adminActions: AdminActionsService,
   ) {}
 
   async getQrAccess(venueId: string): Promise<QrAccessDetails> {
@@ -64,13 +67,25 @@ export class QrAccessService {
     return this.toDetails(await this.qrAccessRepository.save(qrAccess));
   }
 
+  // Se registra aunque el QR ya estuviera en ese estado: alguien pulso el
+  // interruptor.
   async setEnabled(
     venueId: string,
+    staffId: string,
     isEnabled: boolean,
   ): Promise<QrAccessDetails> {
     const qrAccess = await this.findByVenueOrFail(venueId);
     qrAccess.isEnabled = isEnabled;
-    return this.toDetails(await this.qrAccessRepository.save(qrAccess));
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const updated = await manager.save(qrAccess);
+      await this.adminActions.record(manager, {
+        venueId,
+        actorStaffId: staffId,
+        action: isEnabled ? 'QR_ENABLE' : 'QR_DISABLE',
+      });
+      return updated;
+    });
+    return this.toDetails(saved);
   }
 
   // El QR lleva el token en texto plano, no una URL (decision 9): solo lo

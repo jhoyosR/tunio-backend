@@ -10,7 +10,8 @@ import {
   Post,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { Roles } from '../auth/decorators/auth.decorators';
+import { CurrentStaff, Roles } from '../auth/decorators/auth.decorators';
+import type { AuthenticatedStaff } from '../auth/interfaces/authenticated-staff.interface';
 import {
   DefaultPlaylistService,
   PlaylistDetails,
@@ -35,9 +36,14 @@ export class DefaultPlaylistController {
   @Post('tracks')
   addTrack(
     @Param('venueId') venueId: string,
+    @CurrentStaff() staff: AuthenticatedStaff,
     @Body() dto: AddTrackDto,
   ): Promise<PlaylistTrack> {
-    return this.playlistService.addTrack(venueId, dto.youtubeVideoId);
+    return this.playlistService.addTrack(
+      venueId,
+      staff.staffId,
+      dto.youtubeVideoId,
+    );
   }
 
   @Roles('ADMIN')
@@ -46,7 +52,8 @@ export class DefaultPlaylistController {
   removeTrack(
     @Param('venueId') venueId: string,
     @Param('trackId', ParseUUIDPipe) trackId: string,
+    @CurrentStaff() staff: AuthenticatedStaff,
   ): Promise<void> {
-    return this.playlistService.removeTrack(venueId, trackId);
+    return this.playlistService.removeTrack(venueId, staff.staffId, trackId);
   }
 }

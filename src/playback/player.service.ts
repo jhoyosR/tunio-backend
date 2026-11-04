@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { DataSource, EntityManager, SelectQueryBuilder } from 'typeorm';
 import { ActivityEventsService } from '../activity/activity-events.service';
+import { AdminActionsService } from '../activity/admin-actions.service';
 import { Song } from '../catalog/entities/song.entity';
 import { TUNIO_SCHEMA } from '../database/database.constants';
 import { BlockedSong } from '../moderation/entities/blocked-song.entity';
@@ -48,6 +49,7 @@ export class PlayerService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly activityEvents: ActivityEventsService,
+    private readonly adminActions: AdminActionsService,
     private readonly liveUpdates: LiveUpdatesService,
   ) {}
 
@@ -93,6 +95,20 @@ export class PlayerService {
         outcome,
         context,
       );
+      // Saltar es el unico desenlace que decide una persona desde el panel;
+      // los demas los informa el reproductor. Un salto repetido no llega
+      // aqui: la reproduccion ya no esta en curso y no se salta nada.
+      if (outcome === 'SKIPPED') {
+        await this.adminActions.record(manager, {
+          venueId,
+          actorStaffId: context.staffUserId,
+          action: 'SKIP',
+          sessionId: session.id,
+          queueItemId: playback.queueItemId,
+          songId: playback.songId,
+          details: { playbackId: playback.id, source: playback.source },
+        });
+      }
       const result = await this.currentOrNext(
         manager,
         session,
@@ -260,7 +276,9 @@ export class PlayerService {
       .andWhere(
         `song_id IN (SELECT id FROM ${TUNIO_SCHEMA}.songs WHERE NOT last_known_playable)`,
       )
-      .returning(['id', 'song_id'])
+      // Nombres de propiedad: con una lista, TypeORM descarta los que no lo
+      // son. Las filas devueltas llevan el nombre de la columna (song_id).
+      .returning(['id', 'songId'])
       .execute();
     const discarded = result.raw as { id: string; song_id: string }[];
     for (const item of discarded) {
