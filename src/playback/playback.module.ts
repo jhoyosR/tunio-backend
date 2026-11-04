@@ -8,5 +8,6 @@ import { PlayerService } from './player.service';
   imports: [ActivityModule, LiveUpdatesModule],
   controllers: [PlayerController],
   providers: [PlayerService],
+  exports: [PlayerService],
 })
 export class PlaybackModule {}

@@ -1,8 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import { DataSource, In } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { LiveUpdatesService } from '../realtime/live-updates.service';
-import { MusicSession } from '../sessions/entities/music-session.entity';
-import { OPEN_SESSION_STATUSES } from '../sessions/sessions.service';
+import { lockOpenSession } from '../sessions/lock-open-session';
 import { QueueItem } from './entities/queue-item.entity';
 
 export interface ClearQueueResult {
@@ -23,15 +22,9 @@ export class QueueMaintenanceService {
   // tampoco: sus pendientes cuentan como "la sesion cerro antes de su turno".
   async clearQueue(venueId: string): Promise<ClearQueueResult> {
     const removedCount = await this.dataSource.transaction(async (manager) => {
-      // FOR UPDATE: espera a que terminen las solicitudes en curso (que toman
-      // la sesion FOR SHARE) y retiene las nuevas hasta confirmar, asi que
-      // ninguna queda a medias entre la limpieza y la cola vacia.
-      const session = await manager
-        .createQueryBuilder(MusicSession, 'session')
-        .setLock('pessimistic_write')
-        .where('session.venue_id = :venueId', { venueId })
-        .andWhere({ status: In(OPEN_SESSION_STATUSES) })
-        .getOne();
+      // Con la sesion tomada, ninguna solicitud queda a medias entre la
+      // limpieza y la cola vacia.
+      const session = await lockOpenSession(manager, venueId);
       if (!session) {
         throw new ConflictException('The venue has no open session');
       }

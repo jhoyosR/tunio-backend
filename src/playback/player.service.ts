@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { DataSource, EntityManager, In, SelectQueryBuilder } from 'typeorm';
+import { DataSource, EntityManager, SelectQueryBuilder } from 'typeorm';
 import { ActivityEventsService } from '../activity/activity-events.service';
 import { Song } from '../catalog/entities/song.entity';
 import { TUNIO_SCHEMA } from '../database/database.constants';
@@ -14,7 +14,7 @@ import { NowPlaying, toNowPlaying } from '../queue/live-queue.service';
 import { LiveQueueView } from '../queue/views/live-queue.view';
 import { LiveUpdatesService } from '../realtime/live-updates.service';
 import { MusicSession } from '../sessions/entities/music-session.entity';
-import { OPEN_SESSION_STATUSES } from '../sessions/sessions.service';
+import { lockOpenSession } from '../sessions/lock-open-session';
 import { Playback, PlaybackSource } from './entities/playback.entity';
 import {
   FinishContext,
@@ -102,12 +102,35 @@ export class PlayerService {
     });
   }
 
+  // Bloquear la cancion que suena la salta y empieza la siguiente (decision
+  // 18). Corre en la transaccion del llamador, que ya tiene la sesion
+  // bloqueada y el bloqueo insertado: asi la seleccion ya no la elige.
+  async skipBlockedSong(
+    manager: EntityManager,
+    session: MusicSession,
+    songId: string,
+    staffId: string,
+  ): Promise<boolean> {
+    const running = await manager.findOneBy(Playback, {
+      sessionId: session.id,
+      songId,
+      status: 'PLAYING',
+    });
+    if (!running) {
+      return false;
+    }
+    await finishPlayback(manager, this.activityEvents, running, 'SKIPPED', {
+      staffUserId: staffId,
+      reason: 'BLOCKED',
+    });
+    await this.currentOrNext(manager, session, staffId);
+    return true;
+  }
+
   // FOR UPDATE sobre la sesion serializa las decisiones del local: dos
   // peticiones simultaneas no pueden ver ambas "no suena nada" y arrancar dos
   // canciones, ni cerrar dos veces la misma. El indice
-  // uq_one_playback_running_per_session es la red de seguridad. Pedir o
-  // votar y cerrar la sesion toman tambien la sesion antes que nada, asi que
-  // todos los caminos bloquean en el mismo orden y no se interbloquean.
+  // uq_one_playback_running_per_session es la red de seguridad.
   private async inSessionTransaction(
     venueId: string,
     work: (
@@ -117,12 +140,7 @@ export class PlayerService {
   ): Promise<PlayerTrack | null> {
     const { track, changed } = await this.dataSource.transaction(
       async (manager) => {
-        const session = await manager
-          .createQueryBuilder(MusicSession, 'session')
-          .setLock('pessimistic_write')
-          .where('session.venue_id = :venueId', { venueId })
-          .andWhere({ status: In(OPEN_SESSION_STATUSES) })
-          .getOne();
+        const session = await lockOpenSession(manager, venueId);
         // En PAUSED la musica sigue (BE-08); solo una sesion cerrada no suena.
         if (!session) {
           throw new ConflictException('The venue has no open session');
@@ -164,9 +182,8 @@ export class PlayerService {
   }
 
   // La cola tiene prioridad sobre la lista por defecto, pero nunca la
-  // interrumpe: solo se consulta al acabar la pista en curso. Una cancion
-  // con bloqueo vigente no se elige; la entrada se queda PENDING y sale de
-  // la cola cuando el bloqueo la marque BLOCKED (BE-19).
+  // interrumpe: solo se consulta al acabar la pista en curso. Bloquear ya
+  // pasa la entrada a BLOCKED (BE-19); el filtro es la red de seguridad.
   private async nextFromQueue(
     manager: EntityManager,
     session: MusicSession,
