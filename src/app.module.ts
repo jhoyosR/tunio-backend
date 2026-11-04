@@ -18,6 +18,7 @@ import { CatalogModule } from './catalog/catalog.module';
 import { QueueModule } from './queue/queue.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { PlaylistsModule } from './playlists/playlists.module';
+import { PlaybackModule } from './playback/playback.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { PlaylistsModule } from './playlists/playlists.module';
     QueueModule,
     RealtimeModule,
     PlaylistsModule,
+    PlaybackModule,
   ],
   controllers: [AppController],
   providers: [

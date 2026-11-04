@@ -182,7 +182,8 @@ function toEntry(row: LiveQueueView, votedByDevice: boolean): LiveQueueEntry {
   };
 }
 
-function toNowPlaying(view: NowPlayingView): NowPlaying {
+// Tambien la usa el reproductor (BE-15), que devuelve lo mismo mas el video.
+export function toNowPlaying(view: NowPlayingView): NowPlaying {
   return {
     playbackId: view.playbackId,
     songId: view.songId,
