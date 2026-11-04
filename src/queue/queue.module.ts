@@ -6,6 +6,8 @@ import { LiveUpdatesModule } from '../realtime/live-updates.module';
 import { VenuesModule } from '../venues/venues.module';
 import { LiveQueueController } from './live-queue.controller';
 import { LiveQueueService } from './live-queue.service';
+import { QueueMaintenanceController } from './queue-maintenance.controller';
+import { QueueMaintenanceService } from './queue-maintenance.service';
 import { SongRequestsController } from './song-requests.controller';
 import { SongRequestsService } from './song-requests.service';
 
@@ -17,8 +19,12 @@ import { SongRequestsService } from './song-requests.service';
     ActivityModule,
     LiveUpdatesModule,
   ],
-  controllers: [SongRequestsController, LiveQueueController],
-  providers: [SongRequestsService, LiveQueueService],
+  controllers: [
+    SongRequestsController,
+    LiveQueueController,
+    QueueMaintenanceController,
+  ],
+  providers: [SongRequestsService, LiveQueueService, QueueMaintenanceService],
   exports: [LiveQueueService],
 })
 export class QueueModule {}
