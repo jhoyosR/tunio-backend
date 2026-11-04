@@ -12,6 +12,8 @@ import {
   Repository,
 } from 'typeorm';
 import { ActivityEventsService } from '../activity/activity-events.service';
+import { Playback } from '../playback/entities/playback.entity';
+import { finishPlayback } from '../playback/finish-playback';
 import { DefaultPlaylist } from '../playlists/entities/default-playlist.entity';
 import { LiveUpdatesService } from '../realtime/live-updates.service';
 import { MusicSession, SessionStatus } from './entities/music-session.entity';
@@ -114,6 +116,9 @@ export class SessionsService {
   // Las entradas PENDING se dejan tal cual a proposito: en una sesion cerrada,
   // v_unplayed_requests ya las cuenta como "la sesion cerro antes de su
   // turno". Pasarlas a REMOVED las haria pasar por retiradas por el personal.
+  // Lo que estuviera sonando se da por saltado (decision 13): se corto antes
+  // de terminar, y una reproduccion en PLAYING de una sesion cerrada no
+  // terminaria nunca.
   closeSession(
     venueId: string,
     sessionId: string,
@@ -166,11 +171,31 @@ export class SessionsService {
           `Cannot change a ${session.status} session to ${to}`,
         );
       }
+      if (to === 'CLOSED') {
+        await this.skipRunningPlayback(manager, session.id, staffId);
+      }
       await this.recordSessionEvent(manager, session, staffId);
       return this.toDetails(session);
     });
     this.liveUpdates.venueChanged(venueId);
     return details;
+  }
+
+  private async skipRunningPlayback(
+    manager: EntityManager,
+    sessionId: string,
+    staffId: string,
+  ): Promise<void> {
+    const running = await manager.findOneBy(Playback, {
+      sessionId,
+      status: 'PLAYING',
+    });
+    if (running) {
+      await finishPlayback(manager, this.activityEvents, running, 'SKIPPED', {
+        staffUserId: staffId,
+        reason: 'SESSION_CLOSED',
+      });
+    }
   }
 
   // Reanudar emite SESSION_ACTIVE igual que abrir: el evento registra el

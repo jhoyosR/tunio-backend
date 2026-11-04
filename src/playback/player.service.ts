@@ -1,4 +1,8 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { DataSource, EntityManager, In, SelectQueryBuilder } from 'typeorm';
 import { ActivityEventsService } from '../activity/activity-events.service';
 import { Song } from '../catalog/entities/song.entity';
@@ -12,6 +16,11 @@ import { LiveUpdatesService } from '../realtime/live-updates.service';
 import { MusicSession } from '../sessions/entities/music-session.entity';
 import { OPEN_SESSION_STATUSES } from '../sessions/sessions.service';
 import { Playback, PlaybackSource } from './entities/playback.entity';
+import {
+  FinishContext,
+  finishPlayback,
+  PlaybackOutcome,
+} from './finish-playback';
 import { NowPlayingView } from './views/now-playing.view';
 
 // Lo que el reproductor necesita para cargar el video y, tras una recarga,
@@ -30,7 +39,8 @@ interface NextTrack {
 
 interface NextResult {
   track: PlayerTrack | null;
-  started: boolean;
+  // Si hubo que avisar a la sala: algo empezo, termino o salio de la cola.
+  changed: boolean;
 }
 
 @Injectable()
@@ -45,37 +55,92 @@ export class PlayerService {
   // se devuelve eso, asi que repetir la peticion -una recarga de la pantalla,
   // un reintento por red- no consume otra cancion. null = no hay nada que
   // poner: cola vacia y lista por defecto vacia o sin nada reproducible.
-  async next(venueId: string, staffId: string): Promise<PlayerTrack | null> {
-    const { track, started } = await this.dataSource.transaction((manager) =>
-      this.nextInTransaction(manager, venueId, staffId),
+  next(venueId: string, staffId: string): Promise<PlayerTrack | null> {
+    return this.inSessionTransaction(venueId, (manager, session) =>
+      this.currentOrNext(manager, session, staffId),
     );
-    if (started) {
+  }
+
+  // Cada aviso cierra la reproduccion y elige la siguiente en la misma
+  // transaccion (decision 13): nunca queda un hueco sin musica entre dos
+  // llamadas, y un video no disponible deja paso al siguiente sin que la
+  // pantalla haga nada mas. Repetir el aviso -un reintento por red- no
+  // cierra nada dos veces: la reproduccion ya no esta en curso y se devuelve
+  // lo que suena.
+  finish(
+    venueId: string,
+    playbackId: string,
+    outcome: PlaybackOutcome,
+    context: FinishContext,
+  ): Promise<PlayerTrack | null> {
+    return this.inSessionTransaction(venueId, async (manager, session) => {
+      // Filtrar por la sesion abierta hace que una reproduccion de otro
+      // local, o de una noche anterior, se vea como inexistente.
+      const playback = await manager.findOneBy(Playback, {
+        id: playbackId,
+        sessionId: session.id,
+      });
+      if (!playback) {
+        throw new NotFoundException('Playback not found');
+      }
+      if (playback.status !== 'PLAYING') {
+        return this.currentOrNext(manager, session, context.staffUserId);
+      }
+      await finishPlayback(
+        manager,
+        this.activityEvents,
+        playback,
+        outcome,
+        context,
+      );
+      const result = await this.currentOrNext(
+        manager,
+        session,
+        context.staffUserId,
+      );
+      return { ...result, changed: true };
+    });
+  }
+
+  // FOR UPDATE sobre la sesion serializa las decisiones del local: dos
+  // peticiones simultaneas no pueden ver ambas "no suena nada" y arrancar dos
+  // canciones, ni cerrar dos veces la misma. El indice
+  // uq_one_playback_running_per_session es la red de seguridad. Pedir o
+  // votar y cerrar la sesion toman tambien la sesion antes que nada, asi que
+  // todos los caminos bloquean en el mismo orden y no se interbloquean.
+  private async inSessionTransaction(
+    venueId: string,
+    work: (
+      manager: EntityManager,
+      session: MusicSession,
+    ) => Promise<NextResult>,
+  ): Promise<PlayerTrack | null> {
+    const { track, changed } = await this.dataSource.transaction(
+      async (manager) => {
+        const session = await manager
+          .createQueryBuilder(MusicSession, 'session')
+          .setLock('pessimistic_write')
+          .where('session.venue_id = :venueId', { venueId })
+          .andWhere({ status: In(OPEN_SESSION_STATUSES) })
+          .getOne();
+        // En PAUSED la musica sigue (BE-08); solo una sesion cerrada no suena.
+        if (!session) {
+          throw new ConflictException('The venue has no open session');
+        }
+        return work(manager, session);
+      },
+    );
+    if (changed) {
       this.liveUpdates.venueChanged(venueId);
     }
     return track;
   }
 
-  // FOR UPDATE sobre la sesion serializa las decisiones del local: dos
-  // peticiones simultaneas no pueden ver ambas "no suena nada" y arrancar dos
-  // canciones. El indice uq_one_playback_running_per_session es la red de
-  // seguridad. Pedir o votar toma la sesion FOR SHARE antes que nada, asi que
-  // los dos caminos bloquean en el mismo orden y no se interbloquean.
-  private async nextInTransaction(
+  private async currentOrNext(
     manager: EntityManager,
-    venueId: string,
+    session: MusicSession,
     staffId: string,
   ): Promise<NextResult> {
-    const session = await manager
-      .createQueryBuilder(MusicSession, 'session')
-      .setLock('pessimistic_write')
-      .where('session.venue_id = :venueId', { venueId })
-      .andWhere({ status: In(OPEN_SESSION_STATUSES) })
-      .getOne();
-    // En PAUSED la musica sigue (BE-08); solo una sesion cerrada no suena.
-    if (!session) {
-      throw new ConflictException('The venue has no open session');
-    }
-
     const running = await manager.findOneBy(Playback, {
       sessionId: session.id,
       status: 'PLAYING',
@@ -83,19 +148,19 @@ export class PlayerService {
     if (running) {
       return {
         track: await this.readTrack(manager, session.id),
-        started: false,
+        changed: false,
       };
     }
 
-    await this.discardUnplayableRequests(manager, session);
+    const discarded = await this.discardUnplayableRequests(manager, session);
     const next =
       (await this.nextFromQueue(manager, session)) ??
       (await this.nextFromDefaultPlaylist(manager, session));
     if (!next) {
-      return { track: null, started: false };
+      return { track: null, changed: discarded > 0 };
     }
     await this.start(manager, session, next, staffId);
-    return { track: await this.readTrack(manager, session.id), started: true };
+    return { track: await this.readTrack(manager, session.id), changed: true };
   }
 
   // La cola tiene prioridad sobre la lista por defecto, pero nunca la
@@ -167,7 +232,7 @@ export class PlayerService {
   private async discardUnplayableRequests(
     manager: EntityManager,
     session: MusicSession,
-  ): Promise<void> {
+  ): Promise<number> {
     const result = await manager
       .createQueryBuilder()
       .update(QueueItem)
@@ -180,7 +245,8 @@ export class PlayerService {
       )
       .returning(['id', 'song_id'])
       .execute();
-    for (const item of result.raw as { id: string; song_id: string }[]) {
+    const discarded = result.raw as { id: string; song_id: string }[];
+    for (const item of discarded) {
       await this.activityEvents.record(manager, {
         eventType: 'PLAYBACK_UNAVAILABLE',
         venueId: session.venueId,
@@ -189,6 +255,7 @@ export class PlayerService {
         details: { queueItemId: item.id, detectedAt: 'SELECTION' },
       });
     }
+    return discarded.length;
   }
 
   private async start(
