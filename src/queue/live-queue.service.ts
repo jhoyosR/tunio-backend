@@ -1,13 +1,16 @@
 import { Injectable } from '@nestjs/common';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, In } from 'typeorm';
+import { AnonymousDevice } from '../devices/entities/anonymous-device.entity';
 import { DevicesService } from '../devices/devices.service';
 import { PlaybackSource } from '../playback/entities/playback.entity';
 import { NowPlayingView } from '../playback/views/now-playing.view';
-import { SessionsService } from '../sessions/sessions.service';
+import { MusicSession } from '../sessions/entities/music-session.entity';
+import { OPEN_SESSION_STATUSES } from '../sessions/sessions.service';
 import {
   OpenSessionSummary,
   QrAccessService,
 } from '../venues/qr-access.service';
+import { QueueItem } from './entities/queue-item.entity';
 import { Vote } from './entities/vote.entity';
 import { LiveQueueView } from './views/live-queue.view';
 
@@ -46,10 +49,21 @@ export interface LiveQueue {
   entries: LiveQueueEntry[];
 }
 
-const CLOSED_SERVICE: LiveQueue = {
+// Estado del local leido una sola vez, todavia sin personalizar. Lleva quien
+// voto cada entrada pendiente para que el WebSocket pueda marcar «Votado» a
+// cada telefono de la sala sin volver a la base por cada uno.
+export interface LiveQueueSnapshot {
+  session: OpenSessionSummary | null;
+  nowPlaying: NowPlaying | null;
+  rows: LiveQueueView[];
+  voterHashesByItem: Map<string, Set<string>>;
+}
+
+const CLOSED_SERVICE: LiveQueueSnapshot = {
   session: null,
   nowPlaying: null,
-  entries: [],
+  rows: [],
+  voterHashesByItem: new Map(),
 };
 
 @Injectable()
@@ -57,7 +71,6 @@ export class LiveQueueService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly qrAccessService: QrAccessService,
-    private readonly sessionsService: SessionsService,
     private readonly devicesService: DevicesService,
   ) {}
 
@@ -67,35 +80,31 @@ export class LiveQueueService {
     publicToken: string,
     installationId: string | null,
   ): Promise<LiveQueue> {
-    const { venueId, openSession } =
-      await this.qrAccessService.resolveToken(publicToken);
-    if (!openSession) {
-      return CLOSED_SERVICE;
-    }
-    const deviceId = installationId
-      ? await this.devicesService.findDeviceId(venueId, installationId)
+    const { venueId } = await this.qrAccessService.resolveToken(publicToken);
+    const deviceHash = installationId
+      ? await this.devicesService.deviceHashFor(venueId, installationId)
       : null;
-    return this.readSnapshot(openSession, deviceId);
+    return personalize(await this.readSnapshot(venueId), deviceHash);
   }
 
   // Panel del DJ. El personal no vota, asi que no hay nada que marcar.
   async getForStaff(venueId: string): Promise<LiveQueue> {
-    const session = await this.sessionsService.findOpenSession(venueId);
-    if (!session) {
-      return CLOSED_SERVICE;
-    }
-    return this.readSnapshot({ id: session.id, status: session.status }, null);
+    return personalize(await this.readSnapshot(venueId), null);
   }
 
-  // Una sola foto de la base: en REPEATABLE READ las tres consultas ven el
+  // Una sola foto de la base: en REPEATABLE READ todas las consultas ven el
   // mismo instante y el mismo now(). Si no, una cancion que empieza a sonar
   // entre dos lecturas podria faltar en la cola y en "ahora suena" a la vez,
   // o la espera se calcularia contra un relevo distinto del que se muestra.
-  private readSnapshot(
-    session: OpenSessionSummary,
-    deviceId: string | null,
-  ): Promise<LiveQueue> {
+  readSnapshot(venueId: string): Promise<LiveQueueSnapshot> {
     return this.dataSource.transaction('REPEATABLE READ', async (manager) => {
+      const session = await manager.findOneBy(MusicSession, {
+        venueId,
+        status: In(OPEN_SESSION_STATUSES),
+      });
+      if (!session) {
+        return CLOSED_SERVICE;
+      }
       const rows = await manager.find(LiveQueueView, {
         where: { sessionId: session.id },
         order: { queuePosition: 'ASC' },
@@ -103,31 +112,58 @@ export class LiveQueueService {
       const nowPlaying = await manager.findOneBy(NowPlayingView, {
         sessionId: session.id,
       });
-      const votedItemIds = deviceId
-        ? await this.findVotedItemIds(manager, session.id, deviceId)
-        : new Set<string>();
-
       return {
-        session,
+        session: { id: session.id, status: session.status },
         nowPlaying: nowPlaying ? toNowPlaying(nowPlaying) : null,
-        entries: rows.map((row) =>
-          toEntry(row, votedItemIds.has(row.queueItemId)),
-        ),
+        rows,
+        voterHashesByItem: await this.findPendingVoters(manager, session.id),
       };
     });
   }
 
-  private async findVotedItemIds(
+  // Solo las entradas pendientes, que son las unicas que se muestran.
+  private async findPendingVoters(
     manager: EntityManager,
     sessionId: string,
-    deviceId: string,
-  ): Promise<Set<string>> {
-    const votes = await manager.find(Vote, {
-      select: { queueItemId: true },
-      where: { sessionId, deviceId },
-    });
-    return new Set(votes.map((vote) => vote.queueItemId));
+  ): Promise<Map<string, Set<string>>> {
+    const votes = await manager
+      .createQueryBuilder(Vote, 'vote')
+      .innerJoin(QueueItem, 'item', 'item.id = vote.queue_item_id')
+      .innerJoin(AnonymousDevice, 'device', 'device.id = vote.device_id')
+      .select('vote.queue_item_id', 'queueItemId')
+      .addSelect('device.device_hash', 'deviceHash')
+      .where('vote.session_id = :sessionId', { sessionId })
+      .andWhere(`item.status = 'PENDING'`)
+      .getRawMany<{ queueItemId: string; deviceHash: string }>();
+
+    const votersByItem = new Map<string, Set<string>>();
+    for (const { queueItemId, deviceHash } of votes) {
+      const voters = votersByItem.get(queueItemId) ?? new Set<string>();
+      voters.add(deviceHash);
+      votersByItem.set(queueItemId, voters);
+    }
+    return votersByItem;
   }
+}
+
+// La cola tal como la ve un telefono concreto; deviceHash = null para la
+// pantalla del bar y el personal.
+export function personalize(
+  snapshot: LiveQueueSnapshot,
+  deviceHash: string | null,
+): LiveQueue {
+  return {
+    session: snapshot.session,
+    nowPlaying: snapshot.nowPlaying,
+    entries: snapshot.rows.map((row) =>
+      toEntry(
+        row,
+        deviceHash !== null &&
+          (snapshot.voterHashesByItem.get(row.queueItemId)?.has(deviceHash) ??
+            false),
+      ),
+    ),
+  };
 }
 
 function toEntry(row: LiveQueueView, votedByDevice: boolean): LiveQueueEntry {

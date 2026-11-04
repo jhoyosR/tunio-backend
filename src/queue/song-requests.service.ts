@@ -11,6 +11,7 @@ import { ActivityEventsService } from '../activity/activity-events.service';
 import { SongsService } from '../catalog/songs.service';
 import { DevicesService } from '../devices/devices.service';
 import { BlockedSong } from '../moderation/entities/blocked-song.entity';
+import { LiveUpdatesService } from '../realtime/live-updates.service';
 import { MusicSession } from '../sessions/entities/music-session.entity';
 import { QrAccessService } from '../venues/qr-access.service';
 import { QueueItem, QueueItemStatus } from './entities/queue-item.entity';
@@ -56,6 +57,7 @@ export class SongRequestsService {
     private readonly songsService: SongsService,
     private readonly devicesService: DevicesService,
     private readonly activityEvents: ActivityEventsService,
+    private readonly liveUpdates: LiveUpdatesService,
     configService: ConfigService,
   ) {
     this.maxRequestsPerHour = configService.getOrThrow<number>(
@@ -93,6 +95,7 @@ export class SongRequestsService {
     if (result === 'ALREADY_VOTED') {
       throw new ConflictException(ALREADY_VOTED_MESSAGE);
     }
+    this.liveUpdates.venueChanged(venueId);
     return result;
   }
 

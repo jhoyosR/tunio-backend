@@ -16,6 +16,7 @@ import { SessionsModule } from './sessions/sessions.module';
 import { DevicesModule } from './devices/devices.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { QueueModule } from './queue/queue.module';
+import { RealtimeModule } from './realtime/realtime.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { QueueModule } from './queue/queue.module';
     DevicesModule,
     CatalogModule,
     QueueModule,
+    RealtimeModule,
   ],
   controllers: [AppController],
   providers: [

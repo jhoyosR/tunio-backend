@@ -13,6 +13,7 @@ import {
 } from 'typeorm';
 import { ActivityEventsService } from '../activity/activity-events.service';
 import { DefaultPlaylist } from '../playlists/entities/default-playlist.entity';
+import { LiveUpdatesService } from '../realtime/live-updates.service';
 import { MusicSession, SessionStatus } from './entities/music-session.entity';
 
 // Una sesion "abierta" es la que no ha cerrado: ACTIVE o PAUSED. Es la misma
@@ -46,6 +47,7 @@ export class SessionsService {
     private readonly playlistRepository: Repository<DefaultPlaylist>,
     private readonly dataSource: DataSource,
     private readonly activityEvents: ActivityEventsService,
+    private readonly liveUpdates: LiveUpdatesService,
   ) {}
 
   findOpenSession(venueId: string): Promise<MusicSession | null> {
@@ -82,6 +84,7 @@ export class SessionsService {
         await this.recordSessionEvent(manager, opened, staffId);
         return opened;
       });
+      this.liveUpdates.venueChanged(venueId);
       return this.toDetails(session);
     } catch (error) {
       if (this.isOneOpenSessionViolation(error)) {
@@ -127,14 +130,14 @@ export class SessionsService {
 
   // Cambio de estado condicionado en un solo UPDATE: si dos personas pulsan
   // a la vez, solo una transicion se aplica y la otra recibe 409.
-  private transition(
+  private async transition(
     venueId: string,
     sessionId: string,
     staffId: string,
     allowedFrom: SessionStatus[],
     to: SessionStatus,
   ): Promise<SessionDetails> {
-    return this.dataSource.transaction(async (manager) => {
+    const details = await this.dataSource.transaction(async (manager) => {
       const result = await manager
         .createQueryBuilder()
         .update(MusicSession)
@@ -166,6 +169,8 @@ export class SessionsService {
       await this.recordSessionEvent(manager, session, staffId);
       return this.toDetails(session);
     });
+    this.liveUpdates.venueChanged(venueId);
+    return details;
   }
 
   // Reanudar emite SESSION_ACTIVE igual que abrir: el evento registra el

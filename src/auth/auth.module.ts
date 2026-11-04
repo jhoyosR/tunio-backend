@@ -39,5 +39,7 @@ const SECONDS_PER_HOUR = 3600;
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: VenueAccessGuard },
   ],
+  // El WebSocket no pasa por los guards HTTP y verifica el token por su cuenta.
+  exports: [JwtModule],
 })
 export class AuthModule {}

@@ -59,22 +59,19 @@ export class DevicesService {
     return deviceId;
   }
 
-  // Solo lectura: consultar la cola (BE-13) no registra al dispositivo ni
-  // renueva su ultima aparicion. null si el telefono nunca entro al local.
-  async findDeviceId(
+  // Solo lectura: consultar la cola (BE-13, BE-14) no registra al
+  // dispositivo ni renueva su ultima aparicion. Se identifica por el hash y no
+  // por el id porque el hash existe aunque el telefono aun no haya entrado al
+  // local: el WebSocket lo calcula al conectar y sigue sirviendo despues de
+  // que el telefono pida su primera cancion.
+  async deviceHashFor(
     venueId: string,
     installationId: string,
-  ): Promise<string | null> {
-    const manager = this.dataSource.manager;
-    const deviceHash = hashInstallationId(
+  ): Promise<string> {
+    return hashInstallationId(
       installationId,
-      await this.findVenueSalt(manager, venueId),
+      await this.findVenueSalt(this.dataSource.manager, venueId),
     );
-    const device = await manager.findOne(AnonymousDevice, {
-      where: { venueId, deviceHash },
-      select: { id: true },
-    });
-    return device?.id ?? null;
   }
 
   private async findVenueSalt(

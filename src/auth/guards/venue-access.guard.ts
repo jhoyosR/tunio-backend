@@ -7,7 +7,6 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
-import { isUUID } from 'class-validator';
 import { Request } from 'express';
 import { Repository } from 'typeorm';
 import { StaffRole, VenueStaff } from '../../staff/entities/venue-staff.entity';
@@ -17,6 +16,7 @@ import {
   WITHOUT_VENUE_SCOPE_KEY,
 } from '../decorators/auth.decorators';
 import { AuthenticatedStaff } from '../interfaces/authenticated-staff.interface';
+import { findActiveVenueRole } from '../venue-membership';
 
 export const VENUE_ROUTE_PARAM = 'venueId';
 
@@ -70,19 +70,11 @@ export class VenueAccessGuard implements CanActivate {
     return true;
   }
 
-  private async findActiveRole(
+  private findActiveRole(
     staffId: string,
     venueId: string,
   ): Promise<StaffRole | null> {
-    // Un id mal formado haria fallar la consulta con un 500.
-    if (!isUUID(venueId)) {
-      return null;
-    }
-    const membership = await this.venueStaffRepository.findOne({
-      where: { venueId, staffUserId: staffId, staffUser: { isActive: true } },
-      relations: { staffUser: true },
-    });
-    return membership?.role ?? null;
+    return findActiveVenueRole(this.venueStaffRepository, staffId, venueId);
   }
 
   private getMetadata<T>(
