@@ -142,26 +142,38 @@ describe('Sessions (e2e)', () => {
 
     it('cada cambio de estado deja su evento, con quien lo hizo', async () => {
       const events = await dataSource.query<
-        Array<{ event_type: string; venue_id: string; actor: string }>
+        Array<{
+          event_type: string;
+          venue_id: string;
+          actor: string;
+          action: string | null;
+        }>
       >(
-        `SELECT e.event_type, e.venue_id, s.display_name AS actor
+        `SELECT e.event_type, e.venue_id, s.display_name AS actor,
+                e.details->>'action' AS action
            FROM tunio.activity_events e
            JOIN tunio.staff_users s ON s.id = e.staff_user_id
           WHERE e.session_id = $1
           ORDER BY e.id`,
         [sessionId],
       );
-      // La segunda pausa respondio 409: no deja evento.
+      // La segunda pausa respondio 409: no deja evento. Cada cambio emite
+      // ademas ADMIN_ACTION con la accion de la bitacora (BE-20).
       expect(events).toEqual(
         [
-          ['SESSION_ACTIVE', 'dj-a'],
-          ['SESSION_PAUSED', 'dj-a'],
-          ['SESSION_ACTIVE', 'dj-a'],
-          ['SESSION_CLOSED', 'admin-a'],
-        ].map(([eventType, actor]) => ({
+          ['SESSION_ACTIVE', 'dj-a', null],
+          ['ADMIN_ACTION', 'dj-a', 'SESSION_OPEN'],
+          ['SESSION_PAUSED', 'dj-a', null],
+          ['ADMIN_ACTION', 'dj-a', 'SESSION_PAUSE'],
+          ['SESSION_ACTIVE', 'dj-a', null],
+          ['ADMIN_ACTION', 'dj-a', 'SESSION_RESUME'],
+          ['SESSION_CLOSED', 'admin-a', null],
+          ['ADMIN_ACTION', 'admin-a', 'SESSION_CLOSE'],
+        ].map(([eventType, actor, action]) => ({
           event_type: eventType,
           venue_id: barA.venue.id,
           actor,
+          action,
         })),
       );
     });
