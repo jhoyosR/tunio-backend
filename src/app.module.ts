@@ -21,6 +21,7 @@ import { PlaylistsModule } from './playlists/playlists.module';
 import { PlaybackModule } from './playback/playback.module';
 import { ModerationModule } from './moderation/moderation.module';
 import { GenresModule } from './genres/genres.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { GenresModule } from './genres/genres.module';
     PlaybackModule,
     ModerationModule,
     GenresModule,
+    AnalyticsModule,
   ],
   controllers: [AppController],
   providers: [

@@ -7,5 +7,7 @@ import { GenresService } from './genres.service';
   imports: [ActivityModule],
   controllers: [GenresController],
   providers: [GenresService],
+  // BE-22 toma de aqui la cobertura, para no definirla dos veces.
+  exports: [GenresService],
 })
 export class GenresModule {}

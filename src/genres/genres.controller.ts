@@ -11,10 +11,8 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentStaff, Roles } from '../auth/decorators/auth.decorators';
 import type { AuthenticatedStaff } from '../auth/interfaces/authenticated-staff.interface';
 import { Paginated } from '../common/interfaces/api-response.interface';
-import {
-  GenrePeriodQueryDto,
-  UnclassifiedSongsQueryDto,
-} from './dto/genre-period-query.dto';
+import { CalendarRangeQueryDto } from '../common/dto/calendar-range-query.dto';
+import { UnclassifiedSongsQueryDto } from './dto/unclassified-songs-query.dto';
 import { SetGenreDto } from './dto/set-genre.dto';
 import {
   GenreCoverage,
@@ -49,9 +47,13 @@ export class GenresController {
   @Get('genres/coverage')
   getCoverage(
     @Param('venueId') venueId: string,
-    @Query() query: GenrePeriodQueryDto,
+    @Query() query: CalendarRangeQueryDto,
   ): Promise<GenreCoverage> {
-    return this.genresService.getCoverage(venueId, query);
+    return this.genresService.getCoverage({
+      venueId,
+      from: query.from,
+      to: query.to,
+    });
   }
 
   // Asignar y cambiar son la misma operacion: el genero se reemplaza entero.

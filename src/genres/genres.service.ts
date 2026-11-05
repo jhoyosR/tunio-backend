@@ -4,12 +4,11 @@ import { DataSource, EntityManager, SelectQueryBuilder } from 'typeorm';
 import { AdminActionsService } from '../activity/admin-actions.service';
 import { Song } from '../catalog/entities/song.entity';
 import { Paginated } from '../common/interfaces/api-response.interface';
+import { percentage } from '../common/utils/percentage';
 import { DefaultPlaylistTrack } from '../playlists/entities/default-playlist-track.entity';
 import { QueueItem } from '../queue/entities/queue-item.entity';
-import {
-  GenrePeriodQueryDto,
-  UnclassifiedSongsQueryDto,
-} from './dto/genre-period-query.dto';
+import { SessionScope, sessionsInScope } from '../sessions/sessions-in-scope';
+import { UnclassifiedSongsQueryDto } from './dto/unclassified-songs-query.dto';
 import { Genre, GENRE_CODES, GENRES } from './genres';
 
 export interface GenreOption {
@@ -117,7 +116,8 @@ export class GenresService {
     venueId: string,
     query: UnclassifiedSongsQueryDto,
   ): Promise<Paginated<UnclassifiedSong>> {
-    const unclassified = this.requestsInPeriod(venueId, query)
+    const scope = { venueId, from: query.from, to: query.to };
+    const unclassified = this.requestsInScope(scope)
       .innerJoin('item.song', 'song')
       .andWhere('song.genre IS NULL');
     const totalRow = await unclassified
@@ -151,12 +151,11 @@ export class GenresService {
   }
 
   // Se mide con el genero que la cancion tiene hoy: clasificar una cancion
-  // sube la cobertura de todos los periodos en que se pidio.
-  async getCoverage(
-    venueId: string,
-    query: GenrePeriodQueryDto,
-  ): Promise<GenreCoverage> {
-    const row = await this.requestsInPeriod(venueId, query)
+  // sube la cobertura de todos los periodos en que se pidio. Es la unica
+  // definicion de la cobertura (docs/08, D9): el tablero (BE-22) la toma de
+  // aqui.
+  async getCoverage(scope: SessionScope): Promise<GenreCoverage> {
+    const row = await this.requestsInScope(scope)
       .innerJoin('item.song', 'song')
       .select('COUNT(*)', 'total')
       .addSelect('COUNT(*) FILTER (WHERE song.genre IS NOT NULL)', 'classified')
@@ -170,31 +169,13 @@ export class GenresService {
     };
   }
 
-  // Dias del calendario en la zona horaria del sistema, como la bitacora:
-  // «hoy» para el bar incluye lo pedido despues de las 19:00, que en UTC ya
-  // es manana.
-  private requestsInPeriod(
-    venueId: string,
-    period: GenrePeriodQueryDto,
-  ): SelectQueryBuilder<QueueItem> {
-    const builder = this.dataSource.manager
+  // Solicitudes de las sesiones del filtro, con la regla de la noche: una
+  // pedida a la 1:00 cuenta en el dia en que empezo su sesion.
+  private requestsInScope(scope: SessionScope): SelectQueryBuilder<QueueItem> {
+    const sessions = sessionsInScope(scope, this.timezone);
+    return this.dataSource.manager
       .createQueryBuilder(QueueItem, 'item')
-      .innerJoin('item.session', 'session')
-      .where('session.venue_id = :venueId', { venueId })
-      .setParameter('timezone', this.timezone);
-    if (period.from) {
-      builder.andWhere(
-        'item.requested_at >= CAST(CAST(:from AS date) AS timestamp) AT TIME ZONE :timezone',
-        { from: period.from },
-      );
-    }
-    if (period.to) {
-      builder.andWhere(
-        'item.requested_at < CAST(CAST(:to AS date) + 1 AS timestamp) AT TIME ZONE :timezone',
-        { to: period.to },
-      );
-    }
-    return builder;
+      .where(`item.session_id IN (${sessions.sql})`, sessions.params);
   }
 
   // Cancion del local: pedida en alguna de sus sesiones o en su lista por
@@ -237,9 +218,4 @@ export class GenresService {
       lastRequestedAt: row.last_requested_at,
     };
   }
-}
-
-// Con un decimal: el tablero la muestra como «73,4 %».
-function percentage(part: number, total: number): number | null {
-  return total === 0 ? null : Math.round((part / total) * 1000) / 10;
 }
