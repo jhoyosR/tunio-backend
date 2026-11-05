@@ -19,6 +19,7 @@ cp .env.example .env   # ajusta los valores segun tu entorno
 docker compose up -d   # levanta PostgreSQL
 npm run migration:run  # crea el esquema de la base
 npm run seed           # opcional: dos locales de prueba con personal, QR, lista y catalogo
+npm run simulate       # opcional, tras el seed: 8 noches pasadas de El Faro para el tablero
 npm run start:dev
 ```
 
