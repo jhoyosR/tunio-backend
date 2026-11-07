@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource, EntityManager, In } from 'typeorm';
+import { Song } from '../catalog/entities/song.entity';
 import { AnonymousDevice } from '../devices/entities/anonymous-device.entity';
 import { DevicesService } from '../devices/devices.service';
 import { PlaybackSource } from '../playback/entities/playback.entity';
@@ -17,6 +18,9 @@ import { LiveQueueView } from './views/live-queue.view';
 export interface LiveQueueEntry {
   queueItemId: string;
   songId: string;
+  // Pedir o votar se hace por video: con el la app vota desde la cola y
+  // reconoce en la busqueda lo que ya esta pedido (MOV-05, MOV-07).
+  youtubeVideoId: string;
   title: string;
   artistDisplay: string | null;
   thumbnailUrl: string | null;
@@ -32,6 +36,7 @@ export interface LiveQueueEntry {
 export interface NowPlaying {
   playbackId: string;
   songId: string;
+  youtubeVideoId: string;
   title: string;
   artistDisplay: string | null;
   thumbnailUrl: string | null;
@@ -57,6 +62,7 @@ export interface LiveQueueSnapshot {
   nowPlaying: NowPlaying | null;
   rows: LiveQueueView[];
   voterHashesByItem: Map<string, Set<string>>;
+  videoIdsBySong: Map<string, string>;
 }
 
 const CLOSED_SERVICE: LiveQueueSnapshot = {
@@ -64,6 +70,7 @@ const CLOSED_SERVICE: LiveQueueSnapshot = {
   nowPlaying: null,
   rows: [],
   voterHashesByItem: new Map(),
+  videoIdsBySong: new Map(),
 };
 
 @Injectable()
@@ -112,13 +119,36 @@ export class LiveQueueService {
       const nowPlaying = await manager.findOneBy(NowPlayingView, {
         sessionId: session.id,
       });
+      const videoIdsBySong = await this.findVideoIds(manager, [
+        ...rows.map((row) => row.songId),
+        ...(nowPlaying ? [nowPlaying.songId] : []),
+      ]);
       return {
         session: { id: session.id, status: session.status },
-        nowPlaying: nowPlaying ? toNowPlaying(nowPlaying) : null,
+        nowPlaying: nowPlaying
+          ? toNowPlaying(nowPlaying, videoIdsBySong.get(nowPlaying.songId)!)
+          : null,
         rows,
         voterHashesByItem: await this.findPendingVoters(manager, session.id),
+        videoIdsBySong,
       };
     });
+  }
+
+  // Las vistas no traen el video, y se lee aparte para no cambiar el esquema
+  // de referencia; como el reproductor, que hace lo mismo.
+  private async findVideoIds(
+    manager: EntityManager,
+    songIds: string[],
+  ): Promise<Map<string, string>> {
+    if (songIds.length === 0) {
+      return new Map();
+    }
+    const songs = await manager.find(Song, {
+      select: { id: true, youtubeVideoId: true },
+      where: { id: In(songIds) },
+    });
+    return new Map(songs.map((song) => [song.id, song.youtubeVideoId]));
   }
 
   // Solo las entradas pendientes, que son las unicas que se muestran.
@@ -158,6 +188,7 @@ export function personalize(
     entries: snapshot.rows.map((row) =>
       toEntry(
         row,
+        snapshot.videoIdsBySong.get(row.songId)!,
         deviceHash !== null &&
           (snapshot.voterHashesByItem.get(row.queueItemId)?.has(deviceHash) ??
             false),
@@ -166,10 +197,15 @@ export function personalize(
   };
 }
 
-function toEntry(row: LiveQueueView, votedByDevice: boolean): LiveQueueEntry {
+function toEntry(
+  row: LiveQueueView,
+  youtubeVideoId: string,
+  votedByDevice: boolean,
+): LiveQueueEntry {
   return {
     queueItemId: row.queueItemId,
     songId: row.songId,
+    youtubeVideoId,
     title: row.title,
     artistDisplay: row.artistDisplay,
     thumbnailUrl: row.thumbnailUrl,
@@ -182,11 +218,15 @@ function toEntry(row: LiveQueueView, votedByDevice: boolean): LiveQueueEntry {
   };
 }
 
-// Tambien la usa el reproductor (BE-15), que devuelve lo mismo mas el video.
-export function toNowPlaying(view: NowPlayingView): NowPlaying {
+// Tambien la usa el reproductor (BE-15), que devuelve lo mismo.
+export function toNowPlaying(
+  view: NowPlayingView,
+  youtubeVideoId: string,
+): NowPlaying {
   return {
     playbackId: view.playbackId,
     songId: view.songId,
+    youtubeVideoId,
     title: view.title,
     artistDisplay: view.artistDisplay,
     thumbnailUrl: view.thumbnailUrl,

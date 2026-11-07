@@ -25,10 +25,9 @@ import {
 import { NowPlayingView } from './views/now-playing.view';
 
 // Lo que el reproductor necesita para cargar el video y, tras una recarga,
-// posicionarse en elapsedSeconds (WEB-05).
-export interface PlayerTrack extends NowPlaying {
-  youtubeVideoId: string;
-}
+// posicionarse en elapsedSeconds (WEB-05). Es lo mismo que "ahora suena" de
+// la cola, que ya trae el video.
+export type PlayerTrack = NowPlaying;
 
 interface NextTrack {
   songId: string;
@@ -344,7 +343,7 @@ export class PlayerService {
   ): Promise<PlayerTrack> {
     const view = await manager.findOneByOrFail(NowPlayingView, { sessionId });
     const song = await manager.findOneByOrFail(Song, { id: view.songId });
-    return { ...toNowPlaying(view), youtubeVideoId: song.youtubeVideoId };
+    return toNowPlaying(view, song.youtubeVideoId);
   }
 
   private withoutActiveBlock<T extends object>(

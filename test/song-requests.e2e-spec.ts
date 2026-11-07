@@ -155,6 +155,20 @@ describe('Song requests (e2e)', () => {
       );
       expect(Number(votes)).toBe(2);
     });
+
+    it('la cola trae el video de cada entrada, para votar desde ella', async () => {
+      const response = await authed(app, 'get', `/qr/${qrToken}/queue`)
+        .set('X-Installation-Id', firstDevice)
+        .expect(200);
+
+      const entry = (
+        response.body.data.entries as Array<{ songId: string }>
+      ).find((candidate) => candidate.songId === song.id);
+      expect(entry).toMatchObject({
+        youtubeVideoId: song.youtubeVideoId,
+        votedByDevice: true,
+      });
+    });
   });
 
   describe('concurrencia', () => {
