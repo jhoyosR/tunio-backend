@@ -63,8 +63,8 @@ export class MusicSession {
   @Column({ name: 'default_playlist_id', type: 'uuid', nullable: true })
   defaultPlaylistId: string | null;
 
-  // Indice de la ultima pista servida de la lista por defecto. La rotacion
-  // es secuencial y ciclica: al llegar al final vuelve a 0.
+  // position (no numero de orden) de la ultima pista servida de la lista por
+  // defecto. La rotacion es secuencial y ciclica: al llegar al final vuelve a 0.
   @Column({ name: 'default_playlist_cursor', type: 'integer', default: 0 })
   defaultPlaylistCursor: number;
 

@@ -16,6 +16,16 @@ export const envValidationSchema = Joi.object({
   DATABASE_PASSWORD: Joi.string().required(),
   DATABASE_NAME: Joi.string().required(),
 
+  // Firma de los tokens del personal. Minimo 32 caracteres: un secreto corto
+  // se puede adivinar por fuerza bruta a partir de un token capturado.
+  JWT_SECRET: Joi.string().min(32).required(),
+  // Por defecto cubre una noche de servicio completa.
+  JWT_EXPIRES_IN_HOURS: Joi.number().integer().min(1).default(12),
+
+  // Clave de la YouTube Data API. Solo la usa el servidor: ningun cliente
+  // llama a YouTube directamente.
+  YOUTUBE_API_KEY: Joi.string().required(),
+
   // Constantes del servicio (docs/06 §5). No son ajustes por establecimiento:
   // valen para todo el sistema (decision 21).
   TUNIO_TIMEZONE: Joi.string().default('America/Bogota'),

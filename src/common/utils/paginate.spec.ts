@@ -2,12 +2,12 @@ import { SelectQueryBuilder } from 'typeorm';
 import { paginate } from './paginate';
 
 describe('paginate', () => {
-  function buildQueryBuilder(items: unknown[], total: number) {
+  function buildQueryBuilder(items: object[], total: number) {
     return {
       skip: jest.fn().mockReturnThis(),
       take: jest.fn().mockReturnThis(),
       getManyAndCount: jest.fn().mockResolvedValue([items, total]),
-    } as unknown as SelectQueryBuilder<unknown>;
+    } as unknown as SelectQueryBuilder<object>;
   }
 
   it('aplica skip/take segun page y limit', async () => {

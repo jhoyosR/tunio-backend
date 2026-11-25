@@ -10,6 +10,18 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { RequestLoggingMiddleware } from './common/middleware/request-logging.middleware';
 import { ENTITIES } from './database/entities';
+import { AuthModule } from './auth/auth.module';
+import { VenuesModule } from './venues/venues.module';
+import { SessionsModule } from './sessions/sessions.module';
+import { DevicesModule } from './devices/devices.module';
+import { CatalogModule } from './catalog/catalog.module';
+import { QueueModule } from './queue/queue.module';
+import { RealtimeModule } from './realtime/realtime.module';
+import { PlaylistsModule } from './playlists/playlists.module';
+import { PlaybackModule } from './playback/playback.module';
+import { ModerationModule } from './moderation/moderation.module';
+import { GenresModule } from './genres/genres.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 
 @Module({
   imports: [
@@ -35,6 +47,18 @@ import { ENTITIES } from './database/entities';
         synchronize: false,
       }),
     }),
+    AuthModule,
+    VenuesModule,
+    SessionsModule,
+    DevicesModule,
+    CatalogModule,
+    QueueModule,
+    RealtimeModule,
+    PlaylistsModule,
+    PlaybackModule,
+    ModerationModule,
+    GenresModule,
+    AnalyticsModule,
   ],
   controllers: [AppController],
   providers: [
